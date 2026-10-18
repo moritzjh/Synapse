@@ -2,7 +2,10 @@
 
 #include <md4c/md4c.h>
 
+#include "content.hpp"
+
 #include <algorithm>
+#include <optional>
 #include <cctype>
 #include <sstream>
 #include <vector>
@@ -265,9 +268,68 @@ std::string node_text(const json& n) {
   return s;
 }
 
+// Synapse-only data rides along in HTML comments, which Obsidian hides.
+std::string hidden_json(const std::string& tag, const json& data) {
+  std::string j = data.dump();
+  for (size_t p = j.find("-->"); p != std::string::npos; p = j.find("-->", p)) j.replace(p, 3, "--\\u003e");
+  return "<!-- " + tag + " " + j + " -->";
+}
+
+Lines render_database(const json& attrs) {
+  Lines out{hidden_json("synapse-db", attrs), ""};
+  const auto& props = attrs.value("properties", json::array());
+  if (props.empty()) return {out[0]};
+  auto esc = [](std::string v) {
+    std::string r;
+    for (char c : v) {
+      if (c == '|') r += "\\|";
+      else if (c == '\n') r += "<br>";
+      else r += c;
+    }
+    return r.empty() ? std::string(" ") : r;
+  };
+  std::string head = "|", sep = "|";
+  for (const auto& p : props) {
+    head += " " + esc(p.value("name", "")) + " |";
+    sep += " --- |";
+  }
+  out.push_back(head);
+  out.push_back(sep);
+  for (const auto& row : attrs.value("rows", json::array())) {
+    std::string line = "|";
+    const auto& cells = row.value("cells", json::object());
+    for (const auto& p : props) {
+      auto it = cells.find(p.value("id", ""));
+      line += " " + esc(it == cells.end() ? "" : cell_text(p, *it)) + " |";
+    }
+    out.push_back(line);
+  }
+  return out;
+}
+
+// Notion callouts and toggles map to Obsidian callouts ("> [!tip]", foldable "> [!toggle]-").
+Lines render_callout(const std::string& marker, const json& body) {
+  Lines inner = render_children(body, false);
+  Lines out{"> " + marker};
+  for (const auto& l : inner) out.push_back(l.empty() ? ">" : "> " + l);
+  return out;
+}
+
 Lines render_block(const json& n, bool alt_marker) {
   const std::string type = n.value("type", "");
   const json attrs = n.value("attrs", json::object());
+  if (type == "pageLink") return {"[[" + attrs.value("title", std::string("Untitled")) + "]]"};
+  if (type == "database") return render_database(attrs);
+  if (type == "callout") return render_callout("[!" + attrs.value("kind", std::string("note")) + "]", n);
+  if (type == "details") {
+    std::string summary;
+    json body = {{"content", json::array()}};
+    for (const auto& c : n.value("content", json::array())) {
+      if (c.value("type", "") == "detailsSummary") summary = render_inline(c, true);
+      else if (c.value("type", "") == "detailsContent") body = c;
+    }
+    return render_callout("[!toggle]- " + summary, body);
+  }
   if (type == "paragraph") {
     std::string inl = render_inline(n, false);
     if (inl.empty()) return {};
@@ -290,7 +352,13 @@ Lines render_block(const json& n, bool alt_marker) {
     std::string src = to_vault_src(attrs.value("src", json("")).is_string() ? attrs["src"].get<std::string>() : "");
     std::string alt = attrs.contains("alt") && attrs["alt"].is_string() ? attrs["alt"].get<std::string>() : "";
     if (src.find(' ') != std::string::npos) src = "<" + src + ">";
-    return {"![" + escape_text(alt, false) + "](" + src + ")"};
+    Lines out{"![" + escape_text(alt, false) + "](" + src + ")"};
+    const json masks = attrs.value("occlusions", json::array());
+    if (masks.is_array() && !masks.empty()) {
+      out.emplace_back("");
+      out.push_back(hidden_json("synapse-occlusion", masks));
+    }
+    return out;
   }
   if (type == "blockquote") return prefix(render_children(n, false), "> ", "> ");
   if (is_list_node(n)) return render_list(n, alt_marker);
@@ -309,6 +377,8 @@ struct Builder {
   std::vector<json> marks;
   bool in_image = false;
   std::string image_src, image_alt;
+  bool skip_table = false;  // the table after a synapse-db comment is only a rendering
+  int skipping = 0;         // depth inside a skipped table
 
   Builder() { stack.push_back(Frame{json{{"type", "doc"}, {"content", json::array()}}, false}); }
 
@@ -447,8 +517,77 @@ std::string decode_entity(const std::string& e) {
   return e;
 }
 
+// Text inside "<!-- … -->" with the given tag, or nullopt.
+std::optional<std::string> comment_payload(const std::string& raw, const std::string& tag) {
+  std::string head = "<!-- " + tag + " ";
+  size_t start = raw.find(head);
+  size_t end = raw.rfind("-->");
+  if (start != 0 || end == std::string::npos || end < head.size()) return std::nullopt;
+  return raw.substr(head.size(), end - head.size());
+}
+
+// "> [!kind] Title" blockquotes become callouts, "> [!kind]- Title" toggles.
+void convert_callout(json& quote) {
+  auto& content = quote["content"];
+  if (content.empty() || content[0].value("type", "") != "paragraph") return;
+  json& first = content[0];
+  auto& inl = first["content"];
+  if (!inl.is_array() || inl.empty() || inl[0].value("type", "") != "text") return;
+  std::string head = inl[0]["text"];
+  if (head.rfind("[!", 0) != 0) return;
+  size_t close = head.find(']');
+  if (close == std::string::npos) return;
+  std::string kind = head.substr(2, close - 2);
+  std::string rest = head.substr(close + 1);
+  bool fold = !rest.empty() && (rest[0] == '-' || rest[0] == '+');
+  if (fold) rest = rest.substr(1);
+  size_t b = rest.find_first_not_of(' ');
+  rest = b == std::string::npos ? "" : rest.substr(b);
+
+  // Split the marker line (up to the first hard break) from the body.
+  json title_inline = json::array(), body_inline = json::array();
+  if (!rest.empty()) title_inline.push_back({{"type", "text"}, {"text", rest}});
+  bool after_break = false;
+  for (size_t i = 1; i < inl.size(); ++i) {
+    if (!after_break && inl[i].value("type", "") == "hardBreak") {
+      after_break = true;
+      continue;
+    }
+    (after_break ? body_inline : title_inline).push_back(inl[i]);
+  }
+  json blocks = json::array();
+  if (!body_inline.empty()) blocks.push_back({{"type", "paragraph"}, {"content", body_inline}});
+  for (size_t i = 1; i < content.size(); ++i) blocks.push_back(content[i]);
+
+  if (fold || kind == "toggle") {
+    if (blocks.empty()) blocks.push_back({{"type", "paragraph"}});
+    json summary = {{"type", "detailsSummary"}};
+    if (!title_inline.empty()) summary["content"] = title_inline;
+    quote = {{"type", "details"},
+             {"content", json::array({summary, {{"type", "detailsContent"}, {"content", blocks}}})}};
+    return;
+  }
+  if (!title_inline.empty()) {
+    for (auto& t : title_inline)
+      if (t.value("type", "") == "text") t["marks"] = json::array({{{"type", "bold"}}});
+    blocks.insert(blocks.begin(), {{"type", "paragraph"}, {"content", title_inline}});
+  }
+  if (blocks.empty()) blocks.push_back({{"type", "paragraph"}});
+  quote = {{"type", "callout"}, {"attrs", {{"kind", kind}}}, {"content", blocks}};
+}
+
 int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
   auto& b = *static_cast<Builder*>(ud);
+  if (b.skipping) {
+    ++b.skipping;
+    return 0;
+  }
+  if (type == MD_BLOCK_TABLE && b.skip_table) {
+    b.skip_table = false;
+    b.skipping = 1;
+    return 0;
+  }
+  if (type != MD_BLOCK_DOC) b.skip_table = false;
   b.close_implicit();
   switch (type) {
     case MD_BLOCK_DOC: break;
@@ -476,7 +615,7 @@ int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
       b.push({{"type", "codeBlock"}, {"attrs", {{"language", lang.empty() ? json(nullptr) : json(lang)}}}});
       break;
     }
-    case MD_BLOCK_HTML: b.push({{"type", "paragraph"}}); break;
+    case MD_BLOCK_HTML: b.push({{"type", "paragraph"}, {"_raw", ""}}); break;
     case MD_BLOCK_P: b.push({{"type", "paragraph"}}); break;
     case MD_BLOCK_TABLE: b.push({{"type", "table"}}); break;
     case MD_BLOCK_THEAD: case MD_BLOCK_TBODY: break;
@@ -489,9 +628,45 @@ int enter_block(MD_BLOCKTYPE type, void* detail, void* ud) {
 
 int leave_block(MD_BLOCKTYPE type, void*, void* ud) {
   auto& b = *static_cast<Builder*>(ud);
+  if (b.skipping) {
+    --b.skipping;
+    return 0;
+  }
   if (type == MD_BLOCK_DOC || type == MD_BLOCK_THEAD || type == MD_BLOCK_TBODY) return 0;
   b.close_implicit();
   json& node = b.stack.back().node;
+  if (node.contains("_raw")) {
+    std::string raw = node["_raw"];
+    while (!raw.empty() && (raw.back() == '\n' || raw.back() == ' ')) raw.pop_back();
+    node.erase("_raw");
+    if (auto p = comment_payload(raw, "synapse-db")) {
+      json attrs = json::parse(*p, nullptr, false);
+      if (!attrs.is_discarded()) {
+        node = {{"type", "database"}, {"attrs", attrs}};
+        b.skip_table = true;
+        b.pop();
+        return 0;
+      }
+    }
+    if (auto p = comment_payload(raw, "synapse-occlusion")) {
+      json masks = json::parse(*p, nullptr, false);
+      json& siblings = b.stack[b.stack.size() - 2].node["content"];
+      // The image is the last real block (skip the empty stand-in paragraph after it).
+      json* image = nullptr;
+      for (auto it = siblings.rbegin(); it != siblings.rend(); ++it) {
+        if (it->value("type", "") == "paragraph" && !it->contains("content")) continue;
+        if (it->value("type", "") == "image") image = &*it;
+        break;
+      }
+      if (!masks.is_discarded() && image) {
+        (*image)["attrs"]["occlusions"] = masks;
+        b.stack.pop_back();  // drop the comment itself
+        return 0;
+      }
+    }
+    node["content"] = json::array({{{"type", "text"}, {"text", raw}}});
+  }
+  if (node.value("type", "") == "blockquote") convert_callout(node);
   if (node.value("type", "") == "horizontalRule") node.erase("content");
   if (node.value("type", "") == "codeBlock") {
     std::string code = node.value("_code", "");
@@ -510,6 +685,7 @@ int leave_block(MD_BLOCKTYPE type, void*, void* ud) {
 
 int enter_span(MD_SPANTYPE type, void* detail, void* ud) {
   auto& b = *static_cast<Builder*>(ud);
+  if (b.skipping) return 0;
   switch (type) {
     case MD_SPAN_EM: b.toggle_mark("italic", true); break;
     case MD_SPAN_STRONG: b.toggle_mark("bold", true); break;
@@ -530,6 +706,7 @@ int enter_span(MD_SPANTYPE type, void* detail, void* ud) {
 
 int leave_span(MD_SPANTYPE type, void*, void* ud) {
   auto& b = *static_cast<Builder*>(ud);
+  if (b.skipping) return 0;
   switch (type) {
     case MD_SPAN_EM: b.toggle_mark("italic", false); break;
     case MD_SPAN_STRONG: b.toggle_mark("bold", false); break;
@@ -545,7 +722,12 @@ int leave_span(MD_SPANTYPE type, void*, void* ud) {
 
 int on_text(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* ud) {
   auto& b = *static_cast<Builder*>(ud);
+  if (b.skipping) return 0;
   std::string t(text, size);
+  if (json& top = b.stack.back().node; top.contains("_raw")) {
+    top["_raw"] = top["_raw"].get<std::string>() + t;
+    return 0;
+  }
   switch (type) {
     case MD_TEXT_BR: case MD_TEXT_SOFTBR: b.hard_break(); break;
     case MD_TEXT_NULLCHAR: break;

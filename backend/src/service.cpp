@@ -5,6 +5,7 @@
 #include <fstream>
 #include <random>
 #include <set>
+#include <sstream>
 
 #include "content.hpp"
 #include "markdown.hpp"
@@ -41,7 +42,9 @@ json to_json(const Note& n) {
   return {{"id", n.id}, {"title", n.title}, {"content", n.content},
           {"created_at", n.created_at}, {"updated_at", n.updated_at}};
 }
-json to_json(const NoteSummary& n) { return {{"id", n.id}, {"title", n.title}, {"updated_at", n.updated_at}}; }
+json to_json(const NoteSummary& n) {
+  return {{"id", n.id}, {"title", n.title}, {"updated_at", n.updated_at}, {"path", n.path}};
+}
 json to_json(const Neighbor& n) { return {{"id", n.id}, {"title", n.title}, {"score", n.score}}; }
 json to_json(const Card& c) {
   return {{"id", c.id},           {"note_id", c.note_id},     {"note_title", c.note_title},
@@ -91,14 +94,192 @@ int64_t Service::find_note(const std::string& title) {
   return 0;
 }
 
-json Service::create_note(const std::string& title, const std::string& content) {
+json Service::create_note(const std::string& title, const std::string& content, const std::string& folder) {
   Note n = store_.create(title.empty() ? "Untitled" : title, content);
-  changed(n.id);
+  semantic_.note_changed(n.id);
+  vault_.export_note(n.id, folder);
   return to_json(n);
 }
 
-json Service::create_note_markdown(const std::string& title, const std::string& markdown) {
-  return create_note(title, markdown_to_doc(markdown).dump());
+json Service::create_note_markdown(const std::string& title, const std::string& markdown, const std::string& folder) {
+  return create_note(title, markdown_to_doc(markdown).dump(), folder);
+}
+
+// ---- databases -------------------------------------------------------------------
+
+namespace {
+
+void find_databases(json& node, std::vector<json*>& out) {
+  if (node.value("type", "") == "database") out.push_back(&node);
+  if (node.contains("content") && node["content"].is_array())
+    for (auto& c : node["content"]) find_databases(c, out);
+}
+
+std::string random_id() {
+  static std::mt19937_64 rng{std::random_device{}()};
+  static std::mutex mu;
+  std::lock_guard lock(mu);
+  const char* chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  std::string id;
+  for (int i = 0; i < 8; ++i) id += chars[rng() % 36];
+  return id;
+}
+
+json display_rows(const json& attrs) {
+  json rows = json::array();
+  for (const auto& r : attrs.value("rows", json::array())) {
+    json values = json::object();
+    const auto& cells = r.value("cells", json::object());
+    for (const auto& p : attrs.value("properties", json::array())) {
+      auto it = cells.find(p.value("id", ""));
+      if (it != cells.end()) values[p.value("name", "")] = cell_text(p, *it);
+    }
+    rows.push_back({{"id", r.value("id", "")}, {"values", values}});
+  }
+  return rows;
+}
+
+// Converts a user/LLM-supplied value to the stored cell format of a property.
+json to_cell(json& prop, const json& v) {
+  std::string type = prop.value("type", "text");
+  auto option_id = [&](const std::string& name) {
+    if (!prop.contains("options") || !prop["options"].is_array()) prop["options"] = json::array();
+    for (const auto& o : prop["options"])
+      if (o.value("name", "") == name || o.value("id", "") == name) return o.value("id", "");
+    std::string id = random_id();
+    prop["options"].push_back({{"id", id}, {"name", name}, {"color", "gray"}});
+    return id;
+  };
+  if (type == "select" || type == "status") return v.is_string() ? json(option_id(v.get<std::string>())) : json(nullptr);
+  if (type == "multi_select") {
+    json ids = json::array();
+    if (v.is_array()) {
+      for (const auto& x : v)
+        if (x.is_string()) ids.push_back(option_id(x.get<std::string>()));
+    } else if (v.is_string()) {
+      std::stringstream ss(v.get<std::string>());
+      std::string part;
+      while (std::getline(ss, part, ','))
+        if (auto b = part.find_first_not_of(' '); b != std::string::npos) ids.push_back(option_id(part.substr(b)));
+    }
+    return ids;
+  }
+  if (type == "checkbox") return v.is_boolean() ? v : json(v.is_string() && (v == "true" || v == "ja" || v == "yes"));
+  if (type == "number") {
+    if (v.is_number()) return v;
+    if (v.is_string()) try { return std::stod(v.get<std::string>()); } catch (...) {}
+    return nullptr;
+  }
+  return v.is_string() ? v : json(v.dump());
+}
+
+}  // namespace
+
+json Service::databases(int64_t note_id) {
+  auto n = store_.get(note_id);
+  if (!n) throw ServiceError(404, "note not found");
+  json doc = parse_content(n->content);
+  std::vector<json*> dbs;
+  find_databases(doc, dbs);
+  json out = json::array();
+  for (json* db : dbs) {
+    const json& a = (*db)["attrs"];
+    json props = json::array();
+    for (const auto& p : a.value("properties", json::array())) {
+      json pj = {{"name", p.value("name", "")}, {"type", p.value("type", "")}};
+      if (p.contains("options")) {
+        json names = json::array();
+        for (const auto& o : p["options"]) names.push_back(o.value("name", ""));
+        pj["options"] = names;
+      }
+      if (p.contains("formula")) pj["formula"] = p["formula"];
+      props.push_back(pj);
+    }
+    out.push_back({{"id", a.value("id", "")}, {"title", a.value("title", "")}, {"properties", props}, {"rows", display_rows(a)}});
+  }
+  return out;
+}
+
+json Service::upsert_database_row(int64_t note_id, const std::string& db_id, const std::string& row_id, const json& values) {
+  auto n = store_.get(note_id);
+  if (!n) throw ServiceError(404, "note not found");
+  if (!values.is_object()) throw ServiceError(400, "values must be an object of property name → value");
+  json doc = parse_content(n->content);
+  std::vector<json*> dbs;
+  find_databases(doc, dbs);
+  json* db = nullptr;
+  for (json* d : dbs)
+    if (db_id.empty() || (*d)["attrs"].value("id", "") == db_id) db = d;
+  if (!db) throw ServiceError(404, "database not found");
+  json& attrs = (*db)["attrs"];
+  if (!attrs.contains("rows")) attrs["rows"] = json::array();
+
+  json* row = nullptr;
+  for (auto& r : attrs["rows"])
+    if (!row_id.empty() && r.value("id", "") == row_id) row = &r;
+  if (!row_id.empty() && !row) throw ServiceError(404, "row not found");
+  if (!row) {
+    attrs["rows"].push_back({{"id", random_id()}, {"cells", json::object()}});
+    row = &attrs["rows"].back();
+  }
+  for (const auto& [name, v] : values.items()) {
+    json* prop = nullptr;
+    for (auto& p : attrs["properties"])
+      if (p.value("name", "") == name) prop = &p;
+    if (!prop) throw ServiceError(400, "unknown property: " + name);
+    if (prop->value("type", "") == "formula") continue;
+    (*row)["cells"][prop->value("id", "")] = to_cell(*prop, v);
+  }
+  std::string id = (*row).value("id", "");
+  update_note(note_id, n->title, doc.dump());
+  return {{"row_id", id}, {"rows", display_rows(attrs)}};
+}
+
+// ---- folders & subpages ---------------------------------------------------------
+
+json Service::tree() {
+  json folders = json::array();
+  for (const auto& f : vault_.folders()) folders.push_back(f);
+  return {{"folders", folders}, {"notes", list_notes()}};
+}
+
+json Service::move_note(int64_t id, const std::string& folder) {
+  if (!store_.get(id)) throw ServiceError(404, "note not found");
+  vault_.export_note(id, folder);
+  for (const auto& n : store_.list())
+    if (n.id == id) return to_json(n);
+  throw ServiceError(404, "note not found");
+}
+
+json Service::create_subpage(int64_t parent_id, const std::string& title, const std::string& content) {
+  if (!store_.get(parent_id)) throw ServiceError(404, "parent note not found");
+  auto folder = vault_.subpage_folder(parent_id);
+  return create_note(title, content, folder.value_or(""));
+}
+
+std::string Service::create_folder(const std::string& path) {
+  try {
+    return vault_.create_folder(path);
+  } catch (const std::exception& e) {
+    throw ServiceError(400, e.what());
+  }
+}
+
+void Service::rename_folder(const std::string& from, const std::string& to) {
+  try {
+    vault_.rename_folder(from, to);
+  } catch (const std::exception& e) {
+    throw ServiceError(400, e.what());
+  }
+}
+
+void Service::delete_folder(const std::string& path) {
+  if (Vault::clean_folder(path).empty()) throw ServiceError(400, "invalid folder");
+  for (int64_t id : vault_.notes_in(path)) {
+    store_.remove(id);
+    semantic_.note_removed(id);
+  }
+  vault_.trash_folder(path);  // files (incl. non-notes) go to .trash as a whole
 }
 
 json Service::update_note(int64_t id, const std::string& title, const std::string& content) {

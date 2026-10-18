@@ -29,11 +29,26 @@ class Service {
   nlohmann::json get_note(int64_t id);                  // TipTap JSON content
   std::string note_markdown(int64_t id);                // body as Markdown
   int64_t find_note(const std::string& title);          // 0 if none
-  nlohmann::json create_note(const std::string& title, const std::string& content);
-  nlohmann::json create_note_markdown(const std::string& title, const std::string& markdown);
+  nlohmann::json create_note(const std::string& title, const std::string& content, const std::string& folder = "");
+  nlohmann::json create_note_markdown(const std::string& title, const std::string& markdown, const std::string& folder = "");
   nlohmann::json update_note(int64_t id, const std::string& title, const std::string& content);
   nlohmann::json update_note_markdown(int64_t id, const std::string& title, const std::string& markdown);
   void delete_note(int64_t id);
+
+  // folders & subpages
+  nlohmann::json tree();  // {folders: [...], notes: [{id, title, path}]}
+  nlohmann::json move_note(int64_t id, const std::string& folder);
+  nlohmann::json create_subpage(int64_t parent_id, const std::string& title, const std::string& content);
+  std::string create_folder(const std::string& path);
+  void rename_folder(const std::string& from, const std::string& to);
+  void delete_folder(const std::string& path);
+
+  // database blocks inside a note (Notion-style tables/boards)
+  nlohmann::json databases(int64_t note_id);
+  // values: {"Property name": value}; select options are matched by name and
+  // created when missing. row_id empty = add a new row.
+  nlohmann::json upsert_database_row(int64_t note_id, const std::string& db_id, const std::string& row_id,
+                                     const nlohmann::json& values);
 
   nlohmann::json backlinks(int64_t id);
   nlohmann::json similar(int64_t id, size_t k = 8);

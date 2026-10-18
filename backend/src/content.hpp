@@ -18,11 +18,18 @@ std::string plain_text(const nlohmann::json& doc);
 //   Frage >>  + list below  "list" card: points are revealed one by one
 //   Text mit {{Lücken}}     cloze card: every gap is covered and can be
 //                           revealed individually
+//   Image with masks        "occlusion" card: covered regions are revealed
+//                           one after another
 struct CardDraft {
   std::string key;   // stable identity within a note (kind + front)
-  std::string kind;  // basic | reverse | list | cloze
+  std::string kind;  // basic | reverse | list | cloze | occlusion
   std::string front;
   nlohmann::json data;  // kind-specific payload shown on the back
 };
 
 std::vector<CardDraft> extract_cards(const nlohmann::json& doc);
+
+// Database blocks (Notion-style tables): readable text of title + rows, and
+// the display value of one cell (select ids → option names, …).
+std::string database_text(const nlohmann::json& attrs);
+std::string cell_text(const nlohmann::json& prop, const nlohmann::json& value);

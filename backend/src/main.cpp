@@ -5,6 +5,7 @@
 #include <iostream>
 #include <json.hpp>
 
+#include "markdown.hpp"
 #include "mcp.hpp"
 #include "note_store.hpp"
 #include "semantic_index.hpp"
@@ -37,6 +38,7 @@ json parse_body(const httplib::Request& req) {
 // {"title", "content"} – content may be TipTap JSON (string or object) or
 // plain text; {"markdown"} is accepted instead of content.
 void note_fields(const json& body, std::string& title, std::string& content, bool& is_markdown) {
+  if (body.contains("folder") && !body["folder"].is_string()) throw ServiceError(400, "folder must be a string");
   title = body.value("title", "Untitled");
   is_markdown = body.contains("markdown");
   const json& c = is_markdown ? body["markdown"] : body.value("content", json(""));
@@ -121,8 +123,32 @@ int main(int argc, char** argv) {
   srv.Post("/api/notes", [&](Req req, Res res) {
     std::string title, content;
     bool md;
-    note_fields(parse_body(req), title, content, md);
-    send_json(res, md ? svc.create_note_markdown(title, content) : svc.create_note(title, content), 201);
+    json body = parse_body(req);
+    note_fields(body, title, content, md);
+    std::string folder = body.value("folder", "");
+    if (body.contains("parent_id") && body["parent_id"].is_number_integer()) {
+      if (md) content = markdown_to_doc(content).dump();
+      return send_json(res, svc.create_subpage(body["parent_id"].get<int64_t>(), title, content), 201);
+    }
+    send_json(res, md ? svc.create_note_markdown(title, content, folder) : svc.create_note(title, content, folder), 201);
+  });
+  srv.Put(R"(/api/notes/(\d+)/move)", [&](Req req, Res res) {
+    send_json(res, svc.move_note(path_id(req), parse_body(req).value("folder", "")));
+  });
+
+  // ---- folders ----
+  srv.Get("/api/tree", [&](Req, Res res) { send_json(res, svc.tree()); });
+  srv.Post("/api/folders", [&](Req req, Res res) {
+    send_json(res, {{"path", svc.create_folder(parse_body(req).value("path", ""))}}, 201);
+  });
+  srv.Put("/api/folders", [&](Req req, Res res) {
+    json b = parse_body(req);
+    svc.rename_folder(b.value("from", ""), b.value("to", ""));
+    send_json(res, {{"path", Vault::clean_folder(b.value("to", ""))}});
+  });
+  srv.Delete("/api/folders", [&](Req req, Res res) {
+    svc.delete_folder(req.get_param_value("path"));
+    res.status = 204;
   });
   srv.Put(R"(/api/notes/(\d+))", [&](Req req, Res res) {
     std::string title, content;
@@ -137,6 +163,7 @@ int main(int argc, char** argv) {
   });
   srv.Get(R"(/api/notes/(\d+)/backlinks)", [&](Req req, Res res) { send_json(res, svc.backlinks(path_id(req))); });
   srv.Get(R"(/api/notes/(\d+)/similar)", [&](Req req, Res res) { send_json(res, svc.similar(path_id(req))); });
+  srv.Get(R"(/api/notes/(\d+)/databases)", [&](Req req, Res res) { send_json(res, svc.databases(path_id(req))); });
   srv.Get(R"(/api/notes/(\d+)/cards)", [&](Req req, Res res) { send_json(res, svc.note_cards(path_id(req))); });
 
   srv.Get("/api/search", [&](Req req, Res res) { send_json(res, svc.search(req.get_param_value("q"))); });

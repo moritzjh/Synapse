@@ -36,6 +36,50 @@ std::string inline_text(const json& node) {
   return out;
 }
 
+}  // namespace
+
+std::string cell_text(const json& prop, const json& value) {
+  if (value.is_null()) return "";
+  if (value.is_string()) {
+    // select / status store option ids
+    for (const auto& o : prop.value("options", json::array()))
+      if (o.value("id", "") == value.get<std::string>()) return o.value("name", "");
+    return value.get<std::string>();
+  }
+  if (value.is_boolean()) return value.get<bool>() ? prop.value("name", "") : "";
+  if (value.is_number()) return value.dump();
+  if (value.is_array()) {
+    std::string s;
+    for (const auto& v : value) {
+      std::string part = cell_text(prop, v);
+      if (!part.empty()) s += (s.empty() ? "" : ", ") + part;
+    }
+    return s;
+  }
+  return "";
+}
+
+std::string database_text(const json& attrs) {
+  std::string out = attrs.value("title", "");
+  if (!out.empty()) out += '\n';
+  const auto& props = attrs.value("properties", json::array());
+  for (const auto& row : attrs.value("rows", json::array())) {
+    std::string line;
+    const auto& cells = row.value("cells", json::object());
+    for (const auto& p : props) {
+      if (p.value("type", "") == "formula") continue;
+      auto it = cells.find(p.value("id", ""));
+      if (it == cells.end()) continue;
+      std::string v = cell_text(p, *it);
+      if (!v.empty()) line += (line.empty() ? "" : " · ") + v;
+    }
+    if (!line.empty()) out += line + '\n';
+  }
+  return out;
+}
+
+namespace {
+
 void collect_text(const json& node, std::string& out) {
   const std::string t = node.value("type", "");
   if (t == "text") {
@@ -55,6 +99,16 @@ void collect_text(const json& node, std::string& out) {
   if (t == "mermaid") {
     const auto& a = node.value("attrs", json::object());
     if (a.contains("code") && a["code"].is_string()) out += a["code"].get<std::string>() + '\n';
+    return;
+  }
+  if (t == "pageLink") {
+    // Subpage blocks count as links, so they show up in the graph and backlinks.
+    std::string title = node.value("attrs", json::object()).value("title", "");
+    if (!title.empty()) out += "[[" + title + "]]\n";
+    return;
+  }
+  if (t == "database") {
+    out += database_text(node.value("attrs", json::object()));
     return;
   }
   if (node.contains("content"))
@@ -157,6 +211,14 @@ void walk(const json& nodes, std::vector<CardDraft>& out) {
         }
         for (const auto& p : parts)
           if (!is_textblock(p)) walk(json::array({p}), out);
+      }
+    } else if (n.value("type", "") == "image") {
+      const json attrs = n.value("attrs", json::object());
+      const json masks = attrs.value("occlusions", json::array());
+      if (masks.is_array() && !masks.empty()) {
+        std::string src = attrs.value("src", json("")).is_string() ? attrs["src"].get<std::string>() : "";
+        std::string alt = attrs.value("alt", json("")).is_string() ? attrs["alt"].get<std::string>() : "";
+        out.push_back({"occlusion:" + src, "occlusion", alt.empty() ? "Bild" : alt, {{"src", src}, {"masks", masks}}});
       }
     } else if (n.value("type", "") != "codeBlock" && n.contains("content")) {
       walk(n["content"], out);

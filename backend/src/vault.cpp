@@ -1,5 +1,6 @@
 #include "vault.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -173,8 +174,32 @@ std::string Vault::unique_path(const std::string& wanted, int64_t note_id) {
   }
 }
 
-void Vault::export_locked(const Note& note, const std::optional<VaultEntry>& entry) {
-  fs::path dir = entry ? fs::path(entry->path).parent_path() : fs::path();
+std::string Vault::clean_folder(const std::string& rel) {
+  std::string out;
+  std::stringstream ss(rel);
+  std::string part;
+  while (std::getline(ss, part, '/')) {
+    if (part.empty() || part == "." || part == "..") continue;
+    std::string clean = file_stem(part);
+    if (clean.empty() || clean[0] == '.' || clean == "attachments") continue;
+    out += (out.empty() ? "" : "/") + clean;
+  }
+  return out;
+}
+
+// Re-points every vault entry below folder `from` to `to` after a directory move.
+void Vault::move_prefix(const std::string& from, const std::string& to) {
+  std::string prefix = from + "/";
+  for (auto e : store_.vault_entries()) {
+    if (e.path.rfind(prefix, 0) != 0) continue;
+    e.path = to + "/" + e.path.substr(prefix.size());
+    store_.set_vault_entry(e);
+  }
+}
+
+void Vault::export_locked(const Note& note, const std::optional<VaultEntry>& entry,
+                          const std::optional<std::string>& folder) {
+  fs::path dir = folder ? fs::path(*folder) : entry ? fs::path(entry->path).parent_path() : fs::path();
   std::string rel = unique_path((dir / (file_stem(note.title) + ".md")).generic_string(), note.id);
 
   // Keep front matter written by other tools (tags, aliases, …).
@@ -187,18 +212,91 @@ void Vault::export_locked(const Note& note, const std::optional<VaultEntry>& ent
   if (entry && entry->path != rel) {
     std::error_code ec;
     fs::remove(root_ / entry->path, ec);
+    // Subpages travel with their note: "Old.md" + "Old/" → "New.md" + "New/".
+    fs::path old_sub = fs::path(entry->path).replace_extension();
+    fs::path new_sub = fs::path(rel).replace_extension();
+    if (fs::is_directory(root_ / old_sub) && !fs::exists(root_ / new_sub)) {
+      fs::create_directories((root_ / new_sub).parent_path(), ec);
+      fs::rename(root_ / old_sub, root_ / new_sub, ec);
+      if (!ec) move_prefix(old_sub.generic_string(), new_sub.generic_string());
+    }
   }
   store_.set_vault_entry({note.id, rel, hash_hex(text), mtime_of(root_ / rel)});
 }
 
-void Vault::export_note(int64_t id) {
+std::vector<std::string> Vault::folders() {
+  std::lock_guard lock(mu_);
+  std::vector<std::string> out;
+  if (!fs::is_directory(root_)) return out;
+  for (auto it = fs::recursive_directory_iterator(root_); it != fs::recursive_directory_iterator(); ++it) {
+    if (!it->is_directory()) continue;
+    if (skip_dir(it->path())) {
+      it.disable_recursion_pending();
+      continue;
+    }
+    out.push_back(fs::relative(it->path(), root_).generic_string());
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::string Vault::create_folder(const std::string& rel) {
+  std::string clean = clean_folder(rel);
+  if (clean.empty()) throw std::runtime_error("invalid folder name");
+  std::lock_guard lock(mu_);
+  fs::create_directories(root_ / clean);
+  return clean;
+}
+
+void Vault::rename_folder(const std::string& from, const std::string& to) {
+  std::string a = clean_folder(from), b = clean_folder(to);
+  if (a.empty() || b.empty()) throw std::runtime_error("invalid folder name");
+  if (b == a || b.rfind(a + "/", 0) == 0) throw std::runtime_error("cannot move a folder into itself");
+  std::lock_guard lock(mu_);
+  if (!fs::is_directory(root_ / a)) throw std::runtime_error("folder not found");
+  if (fs::exists(root_ / b)) throw std::runtime_error("target exists");
+  fs::create_directories((root_ / b).parent_path());
+  fs::rename(root_ / a, root_ / b);
+  move_prefix(a, b);
+}
+
+std::vector<int64_t> Vault::notes_in(const std::string& rel) {
+  std::string prefix = clean_folder(rel) + "/";
+  std::vector<int64_t> out;
+  for (const auto& e : store_.vault_entries())
+    if (e.path.rfind(prefix, 0) == 0) out.push_back(e.note_id);
+  return out;
+}
+
+void Vault::trash_folder(const std::string& rel) {
+  std::string clean = clean_folder(rel);
+  if (clean.empty()) return;
+  std::lock_guard lock(mu_);
+  fs::path trash = root_ / ".trash" / clean;
+  std::error_code ec;
+  if (fs::exists(trash)) fs::remove_all(trash, ec);
+  fs::create_directories(trash.parent_path(), ec);
+  fs::rename(root_ / clean, trash, ec);
+}
+
+std::optional<std::string> Vault::subpage_folder(int64_t id) {
+  for (const auto& e : store_.vault_entries())
+    if (e.note_id == id) return fs::path(e.path).replace_extension().generic_string();
+  return std::nullopt;
+}
+
+void Vault::export_note(int64_t id, std::optional<std::string> folder) {
   std::lock_guard lock(mu_);
   auto note = store_.get(id);
   if (!note) return;
   std::optional<VaultEntry> entry;
   for (const auto& e : store_.vault_entries())
     if (e.note_id == id) entry = e;
-  export_locked(*note, entry);
+  if (folder) {
+    *folder = clean_folder(*folder);
+    if (!folder->empty()) fs::create_directories(root_ / *folder);
+  }
+  export_locked(*note, entry, folder);
 }
 
 void Vault::remove_note(int64_t id) {
