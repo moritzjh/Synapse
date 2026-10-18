@@ -20,6 +20,7 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
   const [edges, setEdges] = useState<Link[]>([])
   const [showSemantic, setShowSemantic] = useState(true)
   const box = useRef<HTMLDivElement>(null)
+  const theme = useTheme()
   const [size, setSize] = useState({ w: 800, h: 600 })
 
   useEffect(() => {
@@ -55,22 +56,22 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
   return (
     <div className="graph" ref={box}>
       <div className="graph-legend">
-        <span><i className="lg-link" /> [[Link]]</span>
+        <span><i className="lg-link" /> Link</span>
         <label>
           <input type="checkbox" checked={showSemantic} onChange={(e) => setShowSemantic(e.target.checked)} />
-          <i className="lg-sem" /> ähnlicher Inhalt (automatisch)
+          <i className="lg-sem" /> ähnlicher Inhalt
         </label>
       </div>
       <ForceGraph2D
         graphData={data}
         width={size.w}
         height={size.h}
-        backgroundColor="#14161a"
+        backgroundColor={theme.bg}
         nodeId="id"
         nodeLabel="title"
         nodeVal={(n: Node) => 1 + n.degree}
-        nodeColor={() => '#8b9cff'}
-        linkColor={(l: Link) => (l.kind === 'semantic' ? '#e0a84fcc' : '#ffffff66')}
+        nodeColor={() => theme.node}
+        linkColor={(l: Link) => (l.kind === 'semantic' ? theme.semantic : theme.link)}
         linkWidth={(l: Link) => (l.kind === 'semantic' ? 1 + 3 * Math.max(0, l.weight - 0.4) : 1.2)}
         linkLineDash={(l: Link) => (l.kind === 'semantic' ? [3, 3] : null)}
         linkCurvature={(l: Link) => (l.kind === 'semantic' ? 0 : 0.15)}
@@ -81,12 +82,29 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
         nodeCanvasObjectMode={() => 'after'}
         nodeCanvasObject={(n: Node & { x?: number; y?: number }, ctx, scale) => {
           if (scale < 1.2) return
-          ctx.font = `${12 / scale}px system-ui`
-          ctx.fillStyle = '#c9ccd3'
+          ctx.font = `${11 / scale}px Inter, system-ui`
+          ctx.fillStyle = theme.label
           ctx.textAlign = 'center'
           ctx.fillText(n.title, n.x ?? 0, (n.y ?? 0) + 8 + 4 / scale)
         }}
       />
     </div>
   )
+}
+
+/** Graph colours follow the CSS theme (light/dark). */
+function useTheme() {
+  const read = () => {
+    const css = getComputedStyle(document.documentElement)
+    const v = (name: string) => css.getPropertyValue(name).trim()
+    return { bg: v('--bg'), node: v('--text-2'), link: v('--muted'), semantic: v('--amber'), label: v('--text-2') }
+  }
+  const [theme, setTheme] = useState(read)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const on = () => setTheme(read())
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return theme
 }

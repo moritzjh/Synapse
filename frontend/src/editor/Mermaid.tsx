@@ -5,7 +5,8 @@ import { useEffect, useId, useState } from 'react'
 let mermaidReady: Promise<typeof import('mermaid').default> | null = null
 function loadMermaid() {
   mermaidReady ??= import('mermaid').then((m) => {
-    m.default.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    m.default.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'neutral', securityLevel: 'strict' })
     return m.default
   })
   return mermaidReady

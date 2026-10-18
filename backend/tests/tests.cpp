@@ -5,6 +5,7 @@
 
 #include "content.hpp"
 #include "fsrs.hpp"
+#include "markdown.hpp"
 #include "wikilinks.hpp"
 
 namespace {
@@ -86,6 +87,90 @@ void test_fsrs() {
   CHECK(again.state == fsrs::State::Relearning && again.lapses == 1 && again.stability < c.stability);
   CHECK(std::abs(fsrs::retrievability(c, c.last_review + static_cast<int64_t>(c.stability * day)) - 0.9) < 1e-6);
 }
+
+void test_markdown_export() {
+  json d = json::parse(R"({"type": "doc", "content": [
+    {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Titel"}]},
+    {"type": "paragraph", "content": [
+      {"type": "text", "text": "Ein "},
+      {"type": "text", "text": "fett", "marks": [{"type": "bold"}]},
+      {"type": "text", "text": " und kursiv", "marks": [{"type": "bold"}, {"type": "italic"}]},
+      {"type": "text", "text": " 2*3 snake_case [[Link]] {{Lücke}} >> x"}]},
+    {"type": "bulletList", "content": [
+      {"type": "listItem", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "eins"}]},
+        {"type": "bulletList", "content": [{"type": "listItem", "content": [
+          {"type": "paragraph", "content": [{"type": "text", "text": "tief"}]}]}]}]},
+      {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "zwei"}]}]}]},
+    {"type": "taskList", "content": [{"type": "taskItem", "attrs": {"checked": true}, "content": [
+      {"type": "paragraph", "content": [{"type": "text", "text": "fertig"}]}]}]},
+    {"type": "codeBlock", "attrs": {"language": "cpp"}, "content": [{"type": "text", "text": "int x = 1;"}]},
+    {"type": "mermaid", "attrs": {"code": "graph LR\n  A-->B"}},
+    {"type": "image", "attrs": {"src": "/uploads/abc.png", "alt": "Bild"}},
+    {"type": "table", "content": [
+      {"type": "tableRow", "content": [
+        {"type": "tableHeader", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "A"}]}]},
+        {"type": "tableHeader", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "B|C"}]}]}]},
+      {"type": "tableRow", "content": [
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "1"}]}]},
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "2"}]}]}]}]}
+  ]})");
+  std::string md = doc_to_markdown(d);
+  const std::string expected =
+      "## Titel\n\n"
+      "Ein **fett *und kursiv*** 2\\*3 snake_case [[Link]] {{Lücke}} >> x\n\n"
+      "- eins\n  - tief\n- zwei\n\n"
+      "* [x] fertig\n\n"
+      "```cpp\nint x = 1;\n```\n\n"
+      "```mermaid\ngraph LR\n  A-->B\n```\n\n"
+      "![Bild](attachments/abc.png)\n\n"
+      "| A | B\\|C |\n| --- | --- |\n| 1 | 2 |\n";
+  CHECK(md == expected);
+  if (md != expected) std::cerr << "---- got ----\n" << md << "-------------\n";
+
+  // Markdown → doc → Markdown is stable.
+  json back = markdown_to_doc(md);
+  std::string md2 = doc_to_markdown(back);
+  CHECK(md2 == md);
+  if (md2 != md) std::cerr << "---- roundtrip ----\n" << md2 << "-------------\n";
+  CHECK(back["content"][6]["type"] == "image" && back["content"][6]["attrs"]["src"] == "/uploads/abc.png");
+  CHECK(back["content"][5]["type"] == "mermaid");
+  // Cards and text survive the trip.
+  CHECK(extract_cards(back).size() == extract_cards(d).size());
+}
+
+void test_markdown_import() {
+  json d = markdown_to_doc("Text mit ==Markierung== und <u>unter</u>.\nZweite Zeile\n\n1. a\n2. b\n\n> Zitat\n");
+  CHECK(d["content"].size() == 3);
+  auto p = d["content"][0]["content"];
+  CHECK(p[1]["marks"][0]["type"] == "highlight" && p[1]["text"] == "Markierung");
+  CHECK(p[3]["marks"][0]["type"] == "underline");
+  CHECK(p[5]["type"] == "hardBreak");
+  CHECK(d["content"][1]["type"] == "orderedList" && d["content"][1]["content"][1]["content"][0]["type"] == "paragraph");
+  CHECK(d["content"][2]["type"] == "blockquote");
+  // Frage >> + list remains a list card after import.
+  auto cards = extract_cards(markdown_to_doc("Organellen >>\n- Kern\n- Ribosom\n"));
+  CHECK(cards.size() == 1 && cards[0].kind == "list");
+}
+
+void test_exam_scheduling() {
+  const int64_t day = 86'400'000;
+  int64_t t = 1'000'000'000'000;
+  fsrs::CardState c;
+  c = fsrs::review(c, fsrs::Good, t);
+  c = fsrs::review(c, fsrs::Good, t + 600'000);  // graduated
+  // Without an exam the next good review is far away.
+  auto free = fsrs::review(c, fsrs::Good, c.due);
+  int64_t exam = c.due + 12 * day;
+  auto exam_card = fsrs::review(c, fsrs::Good, c.due, {}, exam);
+  CHECK(free.due > exam);
+  CHECK(exam_card.due < exam && exam_card.due >= exam - 2 * day);
+  // A card that will clearly be remembered on exam day is not pulled forward.
+  fsrs::CardState strong = c;
+  strong.stability = 400;
+  auto s2 = fsrs::review(strong, fsrs::Good, c.due, {}, exam);
+  CHECK(s2.due > exam);
+}
 }  // namespace
 
 int main() {
@@ -93,6 +178,9 @@ int main() {
   test_plain_text();
   test_cards();
   test_fsrs();
+  test_markdown_export();
+  test_markdown_import();
+  test_exam_scheduling();
   if (failures) {
     std::cerr << failures << " check(s) failed\n";
     return 1;

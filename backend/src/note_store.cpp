@@ -1,6 +1,7 @@
 #include "note_store.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <ctime>
 #include <map>
@@ -14,7 +15,7 @@ using json = nlohmann::json;
 
 namespace {
 
-constexpr int kSchemaVersion = 2;
+constexpr int kSchemaVersion = 3;
 
 int64_t now_ms() {
   using namespace std::chrono;
@@ -61,7 +62,9 @@ struct Tx {
 
 constexpr const char* kCardColumns = R"sql(
   c.id, c.note_id, n.title, c.kind, c.front, c.data,
-  c.state, c.stability, c.difficulty, c.due, c.last_review, c.reps, c.lapses
+  c.state, c.stability, c.difficulty, c.due, c.last_review, c.reps, c.lapses,
+  (SELECT MIN(e.date) FROM exams e JOIN exam_notes en ON en.exam_id = e.id
+   WHERE en.note_id = c.note_id AND e.date > CAST(strftime('%s', 'now') AS INTEGER) * 1000) AS exam_date
 )sql";
 
 }  // namespace
@@ -77,6 +80,37 @@ void NoteStore::migrate() {
   if (version >= kSchemaVersion) return;
 
   Tx tx(db_);
+  if (version < 2) migrate_v2();
+  if (version < 3) {
+    db_.exec(R"sql(
+      CREATE TABLE IF NOT EXISTS exams (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL,
+        date       INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS exam_notes (
+        exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+        note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        PRIMARY KEY (exam_id, note_id)
+      );
+      CREATE INDEX IF NOT EXISTS exam_notes_note ON exam_notes(note_id);
+
+      -- Markdown file each note is mirrored to, and the hash of what was last
+      -- written/read, to tell our own writes from edits made in other apps.
+      CREATE TABLE IF NOT EXISTS vault_files (
+        note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+        path    TEXT NOT NULL UNIQUE,
+        hash    TEXT NOT NULL,
+        mtime   INTEGER NOT NULL
+      );
+    )sql");
+  }
+  db_.exec(("PRAGMA user_version = " + std::to_string(kSchemaVersion)).c_str());
+  tx.commit();
+}
+
+void NoteStore::migrate_v2() {
   db_.exec(R"sql(
     CREATE TABLE IF NOT EXISTS notes (
       id         INTEGER PRIMARY KEY,
@@ -178,9 +212,6 @@ void NoteStore::migrate() {
     while (s.step()) existing.emplace_back(s.col_int(0), s.col_text(1));
   }
   for (const auto& [id, content] : existing) index_note(id, content);
-
-  db_.exec(("PRAGMA user_version = " + std::to_string(kSchemaVersion)).c_str());
-  tx.commit();
 }
 
 // Derives everything that depends on note content: plain text (FTS),
@@ -343,11 +374,25 @@ Graph NoteStore::graph() {
 
 // ---- flashcards -------------------------------------------------------------
 
+namespace {
+
+// Restricts card queries to the notes of one exam (0 = all cards).
+std::string scope_sql(int64_t exam_id) {
+  if (!exam_id) return "";
+  return " AND c.note_id IN (SELECT note_id FROM exam_notes WHERE exam_id = " + std::to_string(exam_id) + ")";
+}
+
+std::string card_select(const std::string& where) {
+  return std::string("SELECT ") + kCardColumns + " FROM cards c JOIN notes n ON n.id = c.note_id WHERE " + where;
+}
+
+}  // namespace
+
 std::vector<Card> NoteStore::query_cards(Stmt& s) {
   std::vector<Card> out;
   while (s.step()) {
     Card c{s.col_int(0), s.col_int(1), s.col_text(2), s.col_text(3), s.col_text(4),
-           json::parse(s.col_text(5), nullptr, false), {}};
+           json::parse(s.col_text(5), nullptr, false), {}, s.col_int(13)};
     c.sched.state = static_cast<fsrs::State>(s.col_int(6));
     c.sched.stability = s.col_double(7);
     c.sched.difficulty = s.col_double(8);
@@ -362,47 +407,66 @@ std::vector<Card> NoteStore::query_cards(Stmt& s) {
 
 std::vector<Card> NoteStore::note_cards(int64_t note_id) {
   std::lock_guard lock(mu_);
-  Stmt s(db_, (std::string("SELECT ") + kCardColumns +
-               " FROM cards c JOIN notes n ON n.id = c.note_id WHERE c.note_id = ? ORDER BY c.position")
-                  .c_str());
+  Stmt s(db_, card_select("c.note_id = ? ORDER BY c.position").c_str());
   s.bind(1, note_id);
   return query_cards(s);
 }
 
 std::optional<Card> NoteStore::card(int64_t id) {
   std::lock_guard lock(mu_);
-  Stmt s(db_, (std::string("SELECT ") + kCardColumns + " FROM cards c JOIN notes n ON n.id = c.note_id WHERE c.id = ?")
-                  .c_str());
+  Stmt s(db_, card_select("c.id = ?").c_str());
   s.bind(1, id);
   auto cards = query_cards(s);
   if (cards.empty()) return std::nullopt;
   return cards.front();
 }
 
-int NoteStore::new_introduced_today(int64_t now) {
-  Stmt s(db_, "SELECT COUNT(DISTINCT card_id) FROM review_log WHERE state_before = 0 AND ts >= ?");
+int NoteStore::new_introduced_today(int64_t now, int64_t exam_id) {
+  Stmt s(db_, ("SELECT COUNT(DISTINCT r.card_id) FROM review_log r JOIN cards c ON c.id = r.card_id"
+               " WHERE r.state_before = 0 AND r.ts >= ?" + scope_sql(exam_id)).c_str());
   s.bind(1, local_day_start(now));
   s.step();
   return static_cast<int>(s.col_int(0));
 }
 
-std::vector<Card> NoteStore::review_queue(int64_t now, int new_per_day, int limit) {
+// New cards of an exam that still have to be introduced today so that all of
+// them have been seen at least a day before the exam.
+int NoteStore::exam_new_quota(int64_t now, int64_t exam_id, int64_t exam_date) {
+  Stmt s(db_, ("SELECT COUNT(*) FROM cards c WHERE c.state = 0" + scope_sql(exam_id)).c_str());
+  s.step();
+  int remaining = static_cast<int>(s.col_int(0));
+  int done_today = new_introduced_today(now, exam_id);
+  double days_left = double(exam_date - local_day_start(now)) / 86'400'000.0;
+  int days = std::max(1, static_cast<int>(std::floor(days_left)) - 1);
+  int per_day = static_cast<int>(std::ceil(double(remaining + done_today) / days));
+  return std::max(0, per_day - done_today);
+}
+
+int NoteStore::new_limit(int64_t now, int new_per_day, int64_t exam_id) {
+  int base = std::max(0, new_per_day - new_introduced_today(now, 0));
+  int boost = 0;
+  Stmt s(db_, exam_id ? "SELECT id, date FROM exams WHERE id = ? AND date > ?" : "SELECT id, date FROM exams WHERE ? = 0 AND date > ?");
+  s.bind(1, exam_id).bind(2, now);
+  std::vector<std::pair<int64_t, int64_t>> exams;
+  while (s.step()) exams.emplace_back(s.col_int(0), s.col_int(1));
+  for (const auto& [id, date] : exams) boost += exam_new_quota(now, id, date);
+  return std::max(base, boost);
+}
+
+std::vector<Card> NoteStore::review_queue(int64_t now, int new_per_day, int limit, int64_t exam_id) {
   std::lock_guard lock(mu_);
   std::vector<Card> out;
   {
-    Stmt s(db_, (std::string("SELECT ") + kCardColumns +
-                 " FROM cards c JOIN notes n ON n.id = c.note_id"
-                 " WHERE c.state != 0 AND c.due <= ? ORDER BY c.due LIMIT ?")
-                    .c_str());
+    // Cards of the nearest exam first, then by due date.
+    Stmt s(db_, card_select("c.state != 0 AND c.due <= ?" + scope_sql(exam_id) +
+                            " ORDER BY exam_date IS NULL, exam_date, c.due LIMIT ?").c_str());
     s.bind(1, now).bind(2, static_cast<int64_t>(limit));
     out = query_cards(s);
   }
-  int new_left = std::max(0, new_per_day - new_introduced_today(now));
-  int room = std::min<int>(new_left, limit - static_cast<int>(out.size()));
+  int room = std::min<int>(new_limit(now, new_per_day, exam_id), limit - static_cast<int>(out.size()));
   if (room > 0) {
-    Stmt s(db_, (std::string("SELECT ") + kCardColumns +
-                 " FROM cards c JOIN notes n ON n.id = c.note_id"
-                 " WHERE c.state = 0 ORDER BY c.created_at, c.note_id, c.position LIMIT ?")
+    Stmt s(db_, card_select("c.state = 0" + scope_sql(exam_id) +
+                            " ORDER BY exam_date IS NULL, exam_date, c.created_at, c.note_id, c.position LIMIT ?")
                     .c_str());
     s.bind(1, static_cast<int64_t>(room));
     for (auto& c : query_cards(s)) out.push_back(std::move(c));
@@ -413,7 +477,7 @@ std::vector<Card> NoteStore::review_queue(int64_t now, int new_per_day, int limi
 std::optional<Card> NoteStore::review_card(int64_t id, fsrs::Rating rating, int64_t now) {
   auto c = card(id);
   if (!c) return std::nullopt;
-  fsrs::CardState next = fsrs::review(c->sched, rating, now);
+  fsrs::CardState next = fsrs::review(c->sched, rating, now, {}, c->exam_date);
 
   std::lock_guard lock(mu_);
   Tx tx(db_);
@@ -432,25 +496,128 @@ std::optional<Card> NoteStore::review_card(int64_t id, fsrs::Rating rating, int6
   return c;
 }
 
-ReviewStats NoteStore::review_stats(int64_t now, int new_per_day) {
+ReviewStats NoteStore::review_stats(int64_t now, int new_per_day, int64_t exam_id) {
   std::lock_guard lock(mu_);
   ReviewStats st;
   {
-    Stmt s(db_, R"sql(
-      SELECT COUNT(*), SUM(state != 0 AND due <= ?), SUM(state = 0) FROM cards
-    )sql");
+    Stmt s(db_, ("SELECT COUNT(*), SUM(c.state != 0 AND c.due <= ?), SUM(c.state = 0) FROM cards c WHERE 1" +
+                 scope_sql(exam_id)).c_str());
     s.bind(1, now);
     s.step();
     st.total = static_cast<int>(s.col_int(0));
     st.due = static_cast<int>(s.col_int(1));
-    int fresh = static_cast<int>(s.col_int(2));
-    st.new_available = std::min(fresh, std::max(0, new_per_day - new_introduced_today(now)));
+    st.new_available = std::min(static_cast<int>(s.col_int(2)), new_limit(now, new_per_day, exam_id));
   }
-  Stmt s(db_, "SELECT COUNT(*) FROM review_log WHERE ts >= ?");
+  Stmt s(db_, ("SELECT COUNT(*) FROM review_log r JOIN cards c ON c.id = r.card_id WHERE r.ts >= ?" +
+               scope_sql(exam_id)).c_str());
   s.bind(1, local_day_start(now));
   s.step();
   st.reviewed_today = static_cast<int>(s.col_int(0));
   return st;
+}
+
+// ---- exams --------------------------------------------------------------------
+
+void NoteStore::set_exam_notes(int64_t exam_id, const std::vector<int64_t>& note_ids) {
+  Stmt(db_, "DELETE FROM exam_notes WHERE exam_id = ?").bind(1, exam_id).run();
+  Stmt ins(db_, "INSERT OR IGNORE INTO exam_notes(exam_id, note_id) SELECT ?, id FROM notes WHERE id = ?");
+  for (int64_t n : note_ids) {
+    ins.bind(1, exam_id).bind(2, n).run();
+    ins.reset();
+  }
+}
+
+std::optional<Exam> NoteStore::exam_locked(int64_t id) {
+  Stmt s(db_, "SELECT id, name, date FROM exams WHERE id = ?");
+  s.bind(1, id);
+  if (!s.step()) return std::nullopt;
+  Exam e{s.col_int(0), s.col_text(1), s.col_int(2), {}};
+  Stmt n(db_, "SELECT note_id FROM exam_notes WHERE exam_id = ? ORDER BY note_id");
+  n.bind(1, id);
+  while (n.step()) e.note_ids.push_back(n.col_int(0));
+  return e;
+}
+
+Exam NoteStore::create_exam(const std::string& name, int64_t date, const std::vector<int64_t>& note_ids) {
+  std::lock_guard lock(mu_);
+  Tx tx(db_);
+  Stmt(db_, "INSERT INTO exams(name, date, created_at) VALUES (?, ?, ?)").bind(1, name).bind(2, date).bind(3, now_ms()).run();
+  int64_t id = db_.last_insert_id();
+  set_exam_notes(id, note_ids);
+  tx.commit();
+  return *exam_locked(id);
+}
+
+std::optional<Exam> NoteStore::update_exam(int64_t id, const std::string& name, int64_t date,
+                                           const std::vector<int64_t>& note_ids) {
+  std::lock_guard lock(mu_);
+  Tx tx(db_);
+  Stmt(db_, "UPDATE exams SET name = ?, date = ? WHERE id = ?").bind(1, name).bind(2, date).bind(3, id).run();
+  if (sqlite3_changes(db_.handle()) == 0) return std::nullopt;
+  set_exam_notes(id, note_ids);
+  tx.commit();
+  return exam_locked(id);
+}
+
+bool NoteStore::delete_exam(int64_t id) {
+  std::lock_guard lock(mu_);
+  Stmt(db_, "DELETE FROM exams WHERE id = ?").bind(1, id).run();
+  return sqlite3_changes(db_.handle()) > 0;
+}
+
+std::optional<Exam> NoteStore::exam(int64_t id) {
+  std::lock_guard lock(mu_);
+  return exam_locked(id);
+}
+
+std::vector<Exam> NoteStore::list_exams() {
+  std::vector<int64_t> ids;
+  std::lock_guard lock(mu_);
+  {
+    Stmt s(db_, "SELECT id FROM exams ORDER BY date");
+    while (s.step()) ids.push_back(s.col_int(0));
+  }
+  std::vector<Exam> out;
+  for (int64_t id : ids) out.push_back(*exam_locked(id));
+  return out;
+}
+
+ExamProgress NoteStore::exam_progress(const Exam& e, int64_t now) {
+  std::lock_guard lock(mu_);
+  ExamProgress p;
+  Stmt s(db_, card_select("1" + scope_sql(e.id)).c_str());
+  double sum = 0;
+  for (const auto& c : query_cards(s)) {
+    ++p.cards;
+    if (c.sched.state == fsrs::State::New) ++p.new_cards;
+    else if (c.sched.due <= now) ++p.due;
+    // Recall expected on exam day if no further review happens.
+    double r = fsrs::retrievability_at(c.sched, std::max(now, e.date));
+    sum += r;
+    if (r >= 0.9) ++p.mastered;
+  }
+  p.predicted_retention = p.cards ? sum / p.cards : 0;
+  if (e.date > now) p.new_today = std::min(p.new_cards, exam_new_quota(now, e.id, e.date));
+  return p;
+}
+
+// ---- vault ------------------------------------------------------------------
+
+std::vector<VaultEntry> NoteStore::vault_entries() {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, "SELECT note_id, path, hash, mtime FROM vault_files");
+  std::vector<VaultEntry> out;
+  while (s.step()) out.push_back({s.col_int(0), s.col_text(1), s.col_text(2), s.col_int(3)});
+  return out;
+}
+
+void NoteStore::set_vault_entry(const VaultEntry& e) {
+  std::lock_guard lock(mu_);
+  Tx tx(db_);
+  Stmt(db_, "DELETE FROM vault_files WHERE path = ? AND note_id != ?").bind(1, e.path).bind(2, e.note_id).run();
+  Stmt(db_, "INSERT OR REPLACE INTO vault_files(note_id, path, hash, mtime) VALUES (?, ?, ?, ?)")
+      .bind(1, e.note_id).bind(2, e.path).bind(3, e.hash).bind(4, e.mtime).run();
+  tx.commit();
 }
 
 // ---- embeddings ---------------------------------------------------------------

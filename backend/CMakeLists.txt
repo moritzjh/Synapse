@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(synapse_backend CXX)
+project(synapse_backend C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +26,11 @@ add_library(synapse_core STATIC
   src/tokenizer.cpp
   src/embedder.cpp
   src/semantic_index.cpp
+  src/markdown.cpp
+  src/vault.cpp
+  src/service.cpp
+  src/mcp.cpp
+  third_party/md4c/md4c.c
 )
 target_include_directories(synapse_core PUBLIC src)
 target_include_directories(synapse_core SYSTEM PUBLIC third_party ${ORT_DIR}/include)

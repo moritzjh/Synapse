@@ -49,13 +49,15 @@ int64_t interval_days(const Params& p, double s) {
 
 }  // namespace
 
-double retrievability(const CardState& c, int64_t now_ms) {
+double retrievability_at(const CardState& c, int64_t at_ms) {
   if (c.state == State::New || c.stability <= 0) return 0;
-  double elapsed = std::max<int64_t>(0, now_ms - c.last_review) / double(kDay);
+  double elapsed = std::max<int64_t>(0, at_ms - c.last_review) / double(kDay);
   return forgetting_curve(elapsed, c.stability);
 }
 
-CardState review(const CardState& card, Rating g, int64_t now, const Params& p) {
+double retrievability(const CardState& c, int64_t now_ms) { return retrievability_at(c, now_ms); }
+
+CardState review(const CardState& card, Rating g, int64_t now, const Params& p, int64_t exam) {
   CardState c = card;
   double elapsed = c.last_review ? std::max<int64_t>(0, now - c.last_review) / double(kDay) : 0;
 
@@ -102,6 +104,19 @@ CardState review(const CardState& card, Rating g, int64_t now, const Params& p) 
   }
   c.state = State::Review;
   c.due = now + ivl * kDay;
+
+  if (exam > now && c.due >= exam) {
+    double days_left = double(exam - now) / kDay;
+    // Close to the exam only cards at real risk come back, so the last
+    // evening doesn't turn into an endless loop of re-reviews.
+    double target = days_left >= 2 ? p.exam_retention : 0.85;
+    if (forgetting_curve(days_left, c.stability) < target) {
+      // Review once more right before the exam: the day before, or – if the
+      // exam is closer than that – halfway there (at least 10 minutes).
+      c.due = days_left >= 2 ? now + static_cast<int64_t>(std::floor(days_left - 1)) * kDay
+                             : now + std::max<int64_t>(10 * kMinute, (exam - now) / 2);
+    }
+  }
   return c;
 }
 
