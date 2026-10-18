@@ -153,6 +153,49 @@ void test_markdown_import() {
   CHECK(cards.size() == 1 && cards[0].kind == "list");
 }
 
+void test_markdown_blocks() {
+  json d = json::parse(R"({"type": "doc", "content": [
+    {"type": "callout", "attrs": {"kind": "tip"}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Merke dir das"}]}]},
+    {"type": "details", "content": [
+      {"type": "detailsSummary", "content": [{"type": "text", "text": "Mehr zeigen"}]},
+      {"type": "detailsContent", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Versteckt"}]}]}]},
+    {"type": "pageLink", "attrs": {"noteId": 7, "title": "Mitose"}},
+    {"type": "image", "attrs": {"src": "/uploads/zelle.png", "alt": "Zelle",
+      "occlusions": [{"id": "a", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1, "label": "Kern"}]}},
+    {"type": "database", "attrs": {"id": "db1", "title": "Aufgaben",
+      "properties": [{"id": "t", "name": "Aufgabe", "type": "title"},
+                     {"id": "s", "name": "Status", "type": "status", "options": [{"id": "o1", "name": "Erledigt"}]},
+                     {"id": "f", "name": "Formel", "type": "formula", "formula": "1 --> 2"}],
+      "rows": [{"id": "r1", "cells": {"t": "Mitose lernen | wichtig", "s": "o1"}}]}}
+  ]})");
+  std::string md = doc_to_markdown(d);
+  CHECK(md.find("> [!tip]\n> Merke dir das\n") != std::string::npos);
+  CHECK(md.find("> [!toggle]- Mehr zeigen\n> Versteckt\n") != std::string::npos);
+  CHECK(md.find("[[Mitose]]") != std::string::npos);
+  CHECK(md.find("<!-- synapse-occlusion [") != std::string::npos);
+  CHECK(md.find("| Mitose lernen \\| wichtig | Erledigt |   |") != std::string::npos);
+  CHECK(md.find("1 --> 2") == std::string::npos);  // "-->" must not end the comment early
+
+  json back = markdown_to_doc(md);
+  const auto& c = back["content"];
+  CHECK(c.size() == 5);
+  if (c.size() != 5) {
+    std::cerr << md << "\n" << back.dump(2) << "\n";
+    return;
+  }
+  CHECK(c[0]["type"] == "callout" && c[0]["attrs"]["kind"] == "tip");
+  CHECK(c[1]["type"] == "details" && c[1]["content"][1]["content"][0]["content"][0]["text"] == "Versteckt");
+  CHECK(c[3]["type"] == "image" && c[3]["attrs"]["occlusions"][0]["label"] == "Kern");
+  CHECK(c[4]["type"] == "database" && c[4]["attrs"]["properties"][2]["formula"] == "1 --> 2");
+  CHECK(doc_to_markdown(back) == md);
+
+  auto cards = extract_cards(back);
+  CHECK(cards.size() == 1 && cards[0].kind == "occlusion" && cards[0].data["masks"].size() == 1);
+  std::string text = plain_text(back);
+  CHECK(text.find("Aufgaben") != std::string::npos && text.find("Erledigt") != std::string::npos);
+  CHECK(text.find("[[Mitose]]") != std::string::npos);
+}
+
 void test_exam_scheduling() {
   const int64_t day = 86'400'000;
   int64_t t = 1'000'000'000'000;
@@ -181,6 +224,7 @@ int main() {
   test_markdown_export();
   test_markdown_import();
   test_exam_scheduling();
+  test_markdown_blocks();
   if (failures) {
     std::cerr << failures << " check(s) failed\n";
     return 1;

@@ -264,9 +264,12 @@ void NoteStore::index_note(int64_t id, const std::string& content) {
 
 std::vector<NoteSummary> NoteStore::list() {
   std::lock_guard lock(mu_);
-  Stmt s(db_, "SELECT id, title, updated_at FROM notes ORDER BY updated_at DESC");
+  Stmt s(db_, R"sql(
+    SELECT n.id, n.title, n.updated_at, COALESCE(v.path, '')
+    FROM notes n LEFT JOIN vault_files v ON v.note_id = n.id ORDER BY n.updated_at DESC
+  )sql");
   std::vector<NoteSummary> out;
-  while (s.step()) out.push_back({s.col_int(0), s.col_text(1), s.col_int(2)});
+  while (s.step()) out.push_back({s.col_int(0), s.col_text(1), s.col_int(2), s.col_text(3)});
   return out;
 }
 
@@ -345,8 +348,8 @@ Graph NoteStore::graph() {
   std::lock_guard lock(mu_);
   Graph g;
   {
-    Stmt s(db_, "SELECT id, title, updated_at FROM notes");
-    while (s.step()) g.nodes.push_back({s.col_int(0), s.col_text(1), s.col_int(2)});
+    Stmt s(db_, "SELECT n.id, n.title, n.updated_at, COALESCE(v.path, '') FROM notes n LEFT JOIN vault_files v ON v.note_id = n.id");
+    while (s.step()) g.nodes.push_back({s.col_int(0), s.col_text(1), s.col_int(2), s.col_text(3)});
   }
   std::set<std::pair<int64_t, int64_t>> linked;
   {

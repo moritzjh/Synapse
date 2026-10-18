@@ -23,6 +23,7 @@ struct NoteSummary {
   int64_t id;
   std::string title;
   int64_t updated_at;
+  std::string path = "";  // vault-relative Markdown file, e.g. "Bio/Zelle.md"
 };
 
 struct SearchHit {

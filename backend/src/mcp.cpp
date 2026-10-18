@@ -2,6 +2,8 @@
 
 #include <httplib.h>
 
+#include "markdown.hpp"
+
 #include <ctime>
 #include <iostream>
 #include <sstream>
@@ -127,11 +129,77 @@ void McpServer::register_tools() {
       "```mermaid diagrams. Link notes with [[Title]]. Flashcards: 'Question >> Answer', 'Term :: Definition' "
       "(both directions), 'Question >>' followed by a bullet list (points revealed one by one), and {{cloze}} gaps.";
 
-  tools_.push_back({"create_note", "Create note", "Create a new note from Markdown." + syntax_help,
-                    schema({{"title", prop("string", "Note title")}, {"markdown", prop("string", "Note body in Markdown")}},
+  tools_.push_back({"list_tree", "Folder tree",
+                    "All folders and notes with their vault paths. A note 'A/B.md' has its subpages in folder 'A/B'.",
+                    schema(json::object()), [this](const json&) {
+                      json t = service_.tree();
+                      std::ostringstream out;
+                      for (const auto& f : t["folders"]) out << f.get<std::string>() << "/\n";
+                      for (const auto& n : t["notes"])
+                        out << n["path"].get<std::string>() << "  [id " << n["id"].get<int64_t>() << "]\n";
+                      return ToolResult{out.str(), t};
+                    }});
+
+  tools_.push_back({"create_folder", "Create folder", "Create a folder (nested paths like 'Uni/Biologie' are allowed).",
+                    schema({{"path", prop("string", "Folder path")}}, {"path"}), [this](const json& a) {
+                      std::string p = service_.create_folder(a.value("path", ""));
+                      return ToolResult{"Created folder " + p, {{"path", p}}};
+                    },
+                    false});
+
+  tools_.push_back({"move_note", "Move note", "Move a note (with its subpages) into a folder; folder '' = vault root.",
+                    schema({{"id", prop("integer", "Note id")}, {"title", prop("string", "Note title (alternative to id)")},
+                            {"folder", prop("string", "Target folder")}},
+                           {"folder"}),
+                    [this](const json& a) {
+                      json n = service_.move_note(resolve_note(a), a.value("folder", ""));
+                      return ToolResult{"Moved to " + n["path"].get<std::string>(), n};
+                    },
+                    false});
+
+  tools_.push_back({"get_databases", "Read databases",
+                    "Database blocks (Notion-style tables, e.g. task trackers) inside a note: properties and rows.",
+                    schema(note_ref), [this](const json& a) {
+                      json dbs = service_.databases(resolve_note(a));
+                      std::ostringstream out;
+                      for (const auto& d : dbs) {
+                        out << "## " << d["title"].get<std::string>() << " (id " << d["id"].get<std::string>() << ")\n";
+                        for (const auto& r : d["rows"]) {
+                          out << "- [" << r["id"].get<std::string>() << "]";
+                          for (const auto& [k, v] : r["values"].items()) out << " " << k << ": " << v.get<std::string>() << ";";
+                          out << "\n";
+                        }
+                      }
+                      return ToolResult{dbs.empty() ? "(no databases)" : out.str(), {{"databases", dbs}}};
+                    }});
+
+  tools_.push_back({"upsert_database_row", "Add/update database row",
+                    "Add a row to a database block (omit row_id) or update one. values maps property names to values; "
+                    "select/status/multi-select take option names (new options are created), checkbox true/false, "
+                    "dates as YYYY-MM-DD.",
+                    schema({{"id", prop("integer", "Note id")}, {"title", prop("string", "Note title (alternative to id)")},
+                            {"database_id", prop("string", "Database id (optional if the note has only one)")},
+                            {"row_id", prop("string", "Row to update")},
+                            {"values", {{"type", "object"}, {"description", "Property name → value"}}}},
+                           {"values"}),
+                    [this](const json& a) {
+                      json r = service_.upsert_database_row(resolve_note(a), a.value("database_id", ""), a.value("row_id", ""),
+                                                            a.value("values", json::object()));
+                      return ToolResult{"Saved row " + r["row_id"].get<std::string>() + ".", r};
+                    },
+                    false});
+
+  tools_.push_back({"create_note", "Create note",
+                    "Create a new note from Markdown, optionally inside a folder or as a subpage of another note." + syntax_help,
+                    schema({{"title", prop("string", "Note title")}, {"markdown", prop("string", "Note body in Markdown")},
+                            {"folder", prop("string", "Folder path (optional)")},
+                            {"parent_id", prop("integer", "Create as subpage of this note (optional)")}},
                            {"title", "markdown"}),
                     [this](const json& a) {
-                      json n = service_.create_note_markdown(a.value("title", ""), a.value("markdown", ""));
+                      json n = a.contains("parent_id")
+                                   ? service_.create_subpage(a.value("parent_id", int64_t{0}), a.value("title", ""),
+                                                             markdown_to_doc(a.value("markdown", "")).dump())
+                                   : service_.create_note_markdown(a.value("title", ""), a.value("markdown", ""), a.value("folder", ""));
                       int64_t id = n["id"];
                       json cards = service_.note_cards(id);
                       return ToolResult{"Created note " + std::to_string(id) + " with " + std::to_string(cards.size()) + " flashcard(s).",

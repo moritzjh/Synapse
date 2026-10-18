@@ -33,10 +33,25 @@ class Vault {
   // Initial sync plus background watcher.
   void start();
 
-  // Called after a note was created/updated through the API.
-  void export_note(int64_t id);
+  // Called after a note was created/updated through the API. `folder`
+  // (vault-relative, "" = root) places a new note or moves an existing one.
+  void export_note(int64_t id, std::optional<std::string> folder = std::nullopt);
   // Called before a note is deleted through the API.
   void remove_note(int64_t id);
+
+  // Folders are plain directories. A note "A/B.md" can have subpages in the
+  // folder "A/B/" (Obsidian's folder-note convention).
+  std::vector<std::string> folders();
+  std::string create_folder(const std::string& rel);
+  void rename_folder(const std::string& from, const std::string& to);
+  // Notes inside a folder (recursively) – to delete them before the folder.
+  std::vector<int64_t> notes_in(const std::string& rel);
+  void trash_folder(const std::string& rel);
+  // Folder holding the subpages of a note ("A/B.md" → "A/B").
+  std::optional<std::string> subpage_folder(int64_t id);
+
+  // Normalises user input to a safe vault-relative folder path.
+  static std::string clean_folder(const std::string& rel);
 
   const std::filesystem::path& root() const { return root_; }
   std::filesystem::path attachments() const { return root_ / "attachments"; }
@@ -45,7 +60,9 @@ class Vault {
   void scan();
 
  private:
-  void export_locked(const Note& note, const std::optional<VaultEntry>& entry);
+  void export_locked(const Note& note, const std::optional<VaultEntry>& entry,
+                     const std::optional<std::string>& folder = std::nullopt);
+  void move_prefix(const std::string& from, const std::string& to);
   void import_file(const std::string& rel, const std::string& text, int64_t mtime, std::optional<int64_t> note_id);
   std::string unique_path(const std::string& wanted, int64_t note_id);
   void watch();
