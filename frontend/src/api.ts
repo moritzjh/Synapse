@@ -58,3 +58,51 @@ export function extractWikilinks(text: string): string[] {
   }
   return [...out]
 }
+
+export interface Neighbor {
+  id: number
+  title: string
+  score: number
+}
+
+export type ClozeSegment = { text: string } | { cloze: string }
+
+export interface Card {
+  id: number
+  note_id: number
+  note_title: string
+  kind: 'basic' | 'reverse' | 'list' | 'cloze'
+  front: string
+  data: { back?: string; items?: string[]; segments?: ClozeSegment[] }
+  state: 0 | 1 | 2 | 3
+  due: number
+  reps: number
+  lapses: number
+  stability: number
+  intervals?: Record<'1' | '2' | '3' | '4', number>
+}
+
+export interface ReviewStats {
+  due: number
+  new: number
+  total: number
+  reviewed_today: number
+}
+
+export interface Status {
+  semantic: { enabled: boolean; model: string; indexed: number; pending: number }
+}
+
+export const cardApi = {
+  noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),
+  queue: () => request<Card[]>('/review/queue'),
+  stats: () => request<ReviewStats>('/review/stats'),
+  review: (id: number, rating: 1 | 2 | 3 | 4) =>
+    request<Card>(`/cards/${id}/review`, { method: 'POST', body: JSON.stringify({ rating }) }),
+}
+
+export const semanticApi = {
+  similar: (id: number) => request<Neighbor[]>(`/notes/${id}/similar`),
+  search: (q: string) => request<Neighbor[]>(`/semantic-search?q=${encodeURIComponent(q)}`),
+  status: () => request<Status>('/status'),
+}

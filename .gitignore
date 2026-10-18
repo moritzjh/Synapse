@@ -4,3 +4,6 @@ frontend/dist/
 *.db
 *.db-wal
 *.db-shm
+models/
+backend/third_party/onnxruntime/
+uploads/

@@ -45,6 +45,11 @@ Stmt& Stmt::bind(int idx, std::string_view v) {
   return *this;
 }
 
+Stmt& Stmt::bind_blob(int idx, const void* data, size_t size) {
+  sqlite3_bind_blob(stmt_, idx, data, static_cast<int>(size), SQLITE_TRANSIENT);
+  return *this;
+}
+
 bool Stmt::step() {
   int rc = sqlite3_step(stmt_);
   if (rc == SQLITE_ROW) return true;
@@ -54,5 +59,10 @@ bool Stmt::step() {
 
 std::string Stmt::col_text(int i) const {
   auto* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt_, i));
+  return p ? std::string(p, sqlite3_column_bytes(stmt_, i)) : std::string();
+}
+
+std::string Stmt::col_blob(int i) const {
+  auto* p = static_cast<const char*>(sqlite3_column_blob(stmt_, i));
   return p ? std::string(p, sqlite3_column_bytes(stmt_, i)) : std::string();
 }

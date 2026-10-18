@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { api, extractWikilinks, type NoteSummary } from '../api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, cardApi, extractWikilinks, semanticApi, type Card, type Neighbor, type NoteSummary } from '../api'
+import RichEditor, { toDoc, type Doc } from '../editor/RichEditor'
 
 interface Props {
   noteId: number
+  titles: string[]
   onSaved: () => void
   onOpenLink: (title: string) => void
   onOpenNote: (id: number) => void
@@ -11,40 +13,63 @@ interface Props {
 
 const SAVE_DELAY_MS = 500
 
-export default function Editor({ noteId, onSaved, onOpenLink, onOpenNote, onDelete }: Props) {
+export default function Editor({ noteId, titles, onSaved, onOpenLink, onOpenNote, onDelete }: Props) {
   const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
-  const [loaded, setLoaded] = useState(false)
+  const [doc, setDoc] = useState<Doc | null>(null)
+  const [text, setText] = useState('')
   const [status, setStatus] = useState<'saved' | 'dirty' | 'saving'>('saved')
   const [backlinks, setBacklinks] = useState<NoteSummary[]>([])
-  const dirty = useRef(false)
+  const [similar, setSimilar] = useState<Neighbor[]>([])
+  const [cards, setCards] = useState<Card[]>([])
+  const pending = useRef<{ title: string; doc: Doc } | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const titlesRef = useRef(titles)
+  titlesRef.current = titles
+
+  const refreshSide = useCallback(() => {
+    api.backlinks(noteId).then(setBacklinks)
+    cardApi.noteCards(noteId).then(setCards)
+    semanticApi.similar(noteId).then(setSimilar).catch(() => setSimilar([]))
+  }, [noteId])
 
   useEffect(() => {
     api.getNote(noteId).then((n) => {
+      const d = toDoc(n.content)
       setTitle(n.title)
-      setContent(n.content)
-      setLoaded(true)
+      setDoc(d)
+      setText(docText(d))
     })
-    api.backlinks(noteId).then(setBacklinks)
-  }, [noteId])
+    refreshSide()
+  }, [noteId, refreshSide])
 
-  // Debounced autosave.
-  useEffect(() => {
-    if (!loaded || !dirty.current) return
+  const flush = useCallback(async () => {
+    clearTimeout(timer.current)
+    const p = pending.current
+    if (!p) return
+    pending.current = null
+    setStatus('saving')
+    await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
+    setStatus(pending.current ? 'dirty' : 'saved')
+    onSaved()
+    cardApi.noteCards(noteId).then(setCards)
+    // Embeddings are computed in the background (debounced), so refresh a bit later.
+    setTimeout(() => semanticApi.similar(noteId).then(setSimilar).catch(() => {}), 2500)
+  }, [noteId, onSaved])
+
+  // Save pending edits when switching notes or closing the editor.
+  useEffect(() => () => void flush(), [flush])
+
+  const schedule = (next: { title: string; doc: Doc }) => {
+    pending.current = next
     setStatus('dirty')
-    const t = setTimeout(async () => {
-      setStatus('saving')
-      await api.updateNote(noteId, title, content)
-      dirty.current = false
-      setStatus('saved')
-      onSaved()
-    }, SAVE_DELAY_MS)
-    return () => clearTimeout(t)
-  }, [title, content, loaded, noteId, onSaved])
+    clearTimeout(timer.current)
+    timer.current = setTimeout(flush, SAVE_DELAY_MS)
+  }
 
-  if (!loaded) return <div className="empty">Lädt…</div>
+  if (!doc) return <div className="empty">Lädt…</div>
 
-  const links = extractWikilinks(content)
+  const links = extractWikilinks(text)
+  const getDoc = () => pending.current?.doc ?? doc
 
   return (
     <div className="editor">
@@ -53,8 +78,8 @@ export default function Editor({ noteId, onSaved, onOpenLink, onOpenNote, onDele
           className="title-input"
           value={title}
           onChange={(e) => {
-            dirty.current = true
             setTitle(e.target.value)
+            schedule({ title: e.target.value, doc: getDoc() })
           }}
         />
         <span className={`status ${status}`}>
@@ -64,35 +89,71 @@ export default function Editor({ noteId, onSaved, onOpenLink, onOpenNote, onDele
           Löschen
         </button>
       </div>
-      <textarea
-        className="content-input"
-        value={content}
-        placeholder="Schreib los… Verlinke andere Notizen mit [[Titel]]"
-        onChange={(e) => {
-          dirty.current = true
-          setContent(e.target.value)
-        }}
-      />
-      <div className="link-panels">
-        <section>
-          <h3>Links</h3>
-          {links.length === 0 && <p className="muted">Keine</p>}
-          {links.map((l) => (
-            <button key={l} className="chip" onClick={() => onOpenLink(l)}>
-              {l}
-            </button>
-          ))}
-        </section>
-        <section>
-          <h3>Backlinks</h3>
-          {backlinks.length === 0 && <p className="muted">Keine</p>}
-          {backlinks.map((b) => (
-            <button key={b.id} className="chip" onClick={() => onOpenNote(b.id)}>
-              {b.title}
-            </button>
-          ))}
-        </section>
+      <div className="editor-body">
+        <RichEditor
+          initial={doc}
+          getTitles={() => titlesRef.current}
+          onOpenLink={async (t) => {
+            await flush()
+            onOpenLink(t)
+          }}
+          onChange={(d) => {
+            setText(docText(d))
+            schedule({ title, doc: d })
+          }}
+        />
+        <aside className="side-panel">
+          <section>
+            <h3>Links</h3>
+            {links.length === 0 && <p className="muted">Keine</p>}
+            {links.map((l) => (
+              <button key={l} className="chip" onClick={() => flush().then(() => onOpenLink(l))}>
+                {l}
+              </button>
+            ))}
+          </section>
+          <section>
+            <h3>Backlinks</h3>
+            {backlinks.length === 0 && <p className="muted">Keine</p>}
+            {backlinks.map((b) => (
+              <button key={b.id} className="chip" onClick={() => onOpenNote(b.id)}>
+                {b.title}
+              </button>
+            ))}
+          </section>
+          <section>
+            <h3>Ähnliche Notizen</h3>
+            {similar.length === 0 && <p className="muted">Keine (Modell aktiv?)</p>}
+            {similar.slice(0, 6).map((s) => (
+              <button key={s.id} className="chip similar" onClick={() => onOpenNote(s.id)} title={`Ähnlichkeit ${s.score.toFixed(2)}`}>
+                {s.title}
+                <span className="score">{Math.round(s.score * 100)}%</span>
+              </button>
+            ))}
+          </section>
+          <section>
+            <h3>Karteikarten ({cards.length})</h3>
+            {cards.length === 0 && <p className="muted">Schreibe „Frage &gt;&gt; Antwort“ oder {'{{Lücke}}'}</p>}
+            <ul className="card-list">
+              {cards.map((c) => (
+                <li key={c.id}>
+                  <span className={`kind ${c.kind}`}>{KIND_LABEL[c.kind]}</span>
+                  {c.front}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </aside>
       </div>
     </div>
   )
+}
+
+const KIND_LABEL: Record<Card['kind'], string> = { basic: '→', reverse: '←', list: '☰', cloze: '▭' }
+
+function docText(node: unknown): string {
+  const n = node as { type?: string; text?: string; content?: unknown[] }
+  if (n.type === 'text') return n.text ?? ''
+  const inner = (n.content ?? []).map(docText).join('')
+  return n.type === 'paragraph' || n.type === 'heading' ? inner + '\n' : inner
 }
