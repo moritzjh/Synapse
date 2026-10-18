@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { api } from '../api'
 
@@ -11,11 +11,14 @@ interface Node {
 interface Link {
   source: number
   target: number
-  kind: string
+  kind: 'link' | 'semantic'
+  weight: number
 }
 
 export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) {
-  const [data, setData] = useState<{ nodes: Node[]; links: Link[] }>({ nodes: [], links: [] })
+  const [nodes, setNodes] = useState<Node[]>([])
+  const [edges, setEdges] = useState<Link[]>([])
+  const [showSemantic, setShowSemantic] = useState(true)
   const box = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 800, h: 600 })
 
@@ -26,12 +29,19 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
         degree.set(e.source, (degree.get(e.source) ?? 0) + 1)
         degree.set(e.target, (degree.get(e.target) ?? 0) + 1)
       }
-      setData({
-        nodes: g.nodes.map((n) => ({ id: n.id, title: n.title, degree: degree.get(n.id) ?? 0 })),
-        links: g.edges.map((e) => ({ source: e.source, target: e.target, kind: e.kind })),
-      })
+      setNodes(g.nodes.map((n) => ({ id: n.id, title: n.title, degree: degree.get(n.id) ?? 0 })))
+      setEdges(g.edges)
     })
   }, [])
+
+  // ForceGraph mutates link objects (source/target become nodes), so hand it fresh copies.
+  const data = useMemo(
+    () => ({
+      nodes,
+      links: edges.filter((e) => showSemantic || e.kind === 'link').map((e) => ({ ...e })),
+    }),
+    [nodes, edges, showSemantic],
+  )
 
   useEffect(() => {
     if (!box.current) return
@@ -44,6 +54,13 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
 
   return (
     <div className="graph" ref={box}>
+      <div className="graph-legend">
+        <span><i className="lg-link" /> [[Link]]</span>
+        <label>
+          <input type="checkbox" checked={showSemantic} onChange={(e) => setShowSemantic(e.target.checked)} />
+          <i className="lg-sem" /> ähnlicher Inhalt (automatisch)
+        </label>
+      </div>
       <ForceGraph2D
         graphData={data}
         width={size.w}
@@ -53,10 +70,13 @@ export default function GraphView({ onOpen }: { onOpen: (id: number) => void }) 
         nodeLabel="title"
         nodeVal={(n: Node) => 1 + n.degree}
         nodeColor={() => '#8b9cff'}
-        linkColor={(l: Link) => (l.kind === 'semantic' ? '#e0a84f66' : '#ffffff40')}
-        linkCurvature={0.15}
-        linkDirectionalArrowLength={3}
+        linkColor={(l: Link) => (l.kind === 'semantic' ? '#e0a84fcc' : '#ffffff66')}
+        linkWidth={(l: Link) => (l.kind === 'semantic' ? 1 + 3 * Math.max(0, l.weight - 0.4) : 1.2)}
+        linkLineDash={(l: Link) => (l.kind === 'semantic' ? [3, 3] : null)}
+        linkCurvature={(l: Link) => (l.kind === 'semantic' ? 0 : 0.15)}
+        linkDirectionalArrowLength={(l: Link) => (l.kind === 'semantic' ? 0 : 3)}
         linkDirectionalArrowRelPos={1}
+        linkLabel={(l: Link) => (l.kind === 'semantic' ? `Ähnlichkeit ${(l.weight * 100).toFixed(0)}%` : '')}
         onNodeClick={(n: Node) => onOpen(n.id)}
         nodeCanvasObjectMode={() => 'after'}
         nodeCanvasObject={(n: Node & { x?: number; y?: number }, ctx, scale) => {

@@ -34,6 +34,7 @@ class Stmt {
   Stmt& bind(int idx, int64_t v);
   Stmt& bind(int idx, double v);
   Stmt& bind(int idx, std::string_view v);
+  Stmt& bind_blob(int idx, const void* data, size_t size);
 
   // Returns true while a row is available.
   bool step();
@@ -43,6 +44,7 @@ class Stmt {
   int64_t col_int(int i) const { return sqlite3_column_int64(stmt_, i); }
   double col_double(int i) const { return sqlite3_column_double(stmt_, i); }
   std::string col_text(int i) const;
+  std::string col_blob(int i) const;
 
  private:
   sqlite3* db_;
