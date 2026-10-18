@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { cardApi, type Card, type ReviewStats } from '../api'
+import { cardApi, type Card, type Exam, type ReviewStats } from '../api'
+import { Icon } from './Icons'
 
 type Rating = 1 | 2 | 3 | 4
 
@@ -13,35 +14,44 @@ const RATINGS: { r: Rating; label: string; cls: string }[] = [
 /** "[[Titel|Alias]]" → "Alias", "[[Titel]]" → "Titel" for display on cards. */
 const clean = (s: string) => s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, t, a) => a ?? t)
 
-export function formatInterval(ms: number) {
+function formatInterval(ms: number) {
   const min = ms / 60_000
   if (min < 60) return `${Math.max(1, Math.round(min))} Min`
   const h = min / 60
   if (h < 24) return `${Math.round(h)} Std`
   const d = h / 24
-  if (d < 30) return `${Math.round(d)} T`
+  if (d < 30) return `${Math.round(d)} ${Math.round(d) === 1 ? 'Tag' : 'Tage'}`
   if (d < 365) return `${Math.round(d / 30)} Mon`
   return `${(d / 365).toFixed(1)} J`
 }
 
-/** How many parts of the answer exist and must be revealed before rating. */
+/** Parts of the answer that must be revealed before rating. */
 function partCount(card: Card) {
   if (card.kind === 'list') return card.data.items?.length ?? 0
   if (card.kind === 'cloze') return card.data.segments?.filter((s) => 'cloze' in s).length ?? 0
   return 1
 }
 
-export default function Review({ onOpenNote, onChanged }: { onOpenNote: (id: number) => void; onChanged: () => void }) {
+interface Props {
+  exam?: number
+  exams: Exam[]
+  onExam: (exam?: number) => void
+  onOpenNote: (id: number) => void
+  onChanged: () => void
+}
+
+export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: Props) {
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [stats, setStats] = useState<ReviewStats | null>(null)
   const [revealed, setRevealed] = useState<Set<number>>(new Set())
+  const [done, setDone] = useState(0)
 
   const load = useCallback(async () => {
-    const [q, s] = await Promise.all([cardApi.queue(), cardApi.stats()])
+    const [q, s] = await Promise.all([cardApi.queue(exam), cardApi.stats(exam)])
     setQueue(q)
     setStats(s)
     setRevealed(new Set())
-  }, [])
+  }, [exam])
 
   useEffect(() => {
     load()
@@ -52,41 +62,35 @@ export default function Review({ onOpenNote, onChanged }: { onOpenNote: (id: num
   const allRevealed = card ? revealed.size >= parts : false
 
   const revealNext = useCallback(() => {
-    if (!card) return
-    for (let i = 0; i < parts; i++) {
-      if (!revealed.has(i)) {
-        setRevealed(new Set(revealed).add(i))
-        return
-      }
-    }
-  }, [card, parts, revealed])
-
-  const revealAll = () => setRevealed(new Set(Array.from({ length: parts }, (_, i) => i)))
-  const toggle = (i: number) => setRevealed((r) => new Set(r).add(i))
+    for (let i = 0; i < parts; i++)
+      if (!revealed.has(i)) return setRevealed(new Set(revealed).add(i))
+  }, [parts, revealed])
+  const reveal = (i: number) => setRevealed((r) => new Set(r).add(i))
 
   const rate = useCallback(
     async (r: Rating) => {
       if (!card) return
       await cardApi.review(card.id, r)
+      setDone((d) => d + 1)
       setRevealed(new Set())
       const rest = queue!.slice(1)
       if (rest.length) {
         setQueue(rest)
-        cardApi.stats().then(setStats)
+        cardApi.stats(exam).then(setStats)
       } else {
-        await load() // picks up learning cards that became due meanwhile
+        await load()
       }
       onChanged()
     },
-    [card, queue, load, onChanged],
+    [card, queue, load, onChanged, exam],
   )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!card || (e.target as HTMLElement).tagName === 'INPUT') return
+      if (!card || ['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault()
-        revealNext()
+        if (!allRevealed) revealNext()
       } else if (allRevealed && ['1', '2', '3', '4'].includes(e.key)) {
         rate(Number(e.key) as Rating)
       }
@@ -95,34 +99,41 @@ export default function Review({ onOpenNote, onChanged }: { onOpenNote: (id: num
     return () => window.removeEventListener('keydown', onKey)
   }, [card, allRevealed, revealNext, rate])
 
-  if (!queue || !stats) return <div className="empty">Lädt…</div>
+  if (!queue || !stats) return <div className="scroll" />
+  const current = exams.find((e) => e.id === exam)
 
   return (
-    <div className="review">
-      <div className="review-stats">
-        <span><b className="c-due">{stats.due}</b> fällig</span>
-        <span><b className="c-new">{stats.new}</b> neu</span>
-        <span><b>{stats.reviewed_today}</b> heute gelernt</span>
-        <span className="muted">{stats.total} Karten insgesamt</span>
-      </div>
-
-      {!card ? (
-        <div className="empty">
-          <p>🎉 Alles erledigt für jetzt.</p>
-          <p className="muted">
-            Karten entstehen automatisch aus deinen Notizen: <code>Frage &gt;&gt; Antwort</code>,{' '}
-            <code>Begriff :: Definition</code>, <code>{'{{Lücke}}'}</code> oder <code>Frage &gt;&gt;</code> mit einer
-            Liste darunter.
-          </p>
-          <button onClick={load}>Neu laden</button>
+    <div className="scroll">
+      <div className="review">
+        <div className="review-top">
+          <select value={exam ?? 0} onChange={(e) => onExam(Number(e.target.value) || undefined)}>
+            <option value={0}>Alle Karten</option>
+            {exams.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+          <div className="counts">
+            <span className="due"><b>{stats.due}</b> fällig</span>
+            <span className="new"><b>{stats.new}</b> neu</span>
+            <span><b>{stats.reviewed_today}</b> heute</span>
+          </div>
         </div>
-      ) : (
-        <div className="flashcard-wrap">
-          <div className="flashcard">
+        <div className="progress"><div style={{ width: `${(done / Math.max(1, done + queue.length)) * 100}%` }} /></div>
+
+        {!card ? (
+          <div className="empty-state" style={{ padding: '10vh 0' }}>
+            <p>Für jetzt ist alles gelernt{current ? ` für ${current.name}` : ''}.</p>
+            <p>
+              Karten entstehen aus deinen Notizen: <code>Frage &gt;&gt; Antwort</code> · <code>Begriff :: Definition</code> ·{' '}
+              <code>{'{{Lücke}}'}</code> · <code>Frage &gt;&gt;</code> mit Liste darunter
+            </p>
+          </div>
+        ) : (
+          <>
             <button className="card-source" onClick={() => onOpenNote(card.note_id)}>
-              {card.note_title} ↗
+              <Icon name="note" /> {card.note_title}
+              {card.state === 0 && ' · neu'}
             </button>
-            {card.state === 0 && <span className="badge new">Neu</span>}
 
             {card.kind === 'cloze' ? (
               <div className="card-front cloze-text">
@@ -130,12 +141,11 @@ export default function Review({ onOpenNote, onChanged }: { onOpenNote: (id: num
                   let gap = -1
                   return card.data.segments!.map((s, i) => {
                     if ('text' in s) return <span key={i}>{clean(s.text)}</span>
-                    gap++
-                    const g = gap
+                    const g = ++gap
                     return revealed.has(g) ? (
                       <span key={i} className="cloze revealed">{clean(s.cloze)}</span>
                     ) : (
-                      <button key={i} className="cloze hidden" onClick={() => toggle(g)} title="Aufdecken">
+                      <button key={i} className="cloze hidden" onClick={() => reveal(g)} title="Aufdecken">
                         {' '.repeat(Math.min(Math.max(s.cloze.length, 4), 24))}
                       </button>
                     )
@@ -157,36 +167,38 @@ export default function Review({ onOpenNote, onChanged }: { onOpenNote: (id: num
                     <li key={i} className="revealed">{clean(item)}</li>
                   ) : (
                     <li key={i}>
-                      <button className="cover" onClick={() => toggle(i)}>Aufdecken</button>
+                      <button className="cover" onClick={() => reveal(i)}>aufdecken</button>
                     </li>
                   ),
                 )}
               </ol>
             )}
-          </div>
 
-          <div className="review-actions">
-            {!allRevealed ? (
-              <>
-                <button className="primary" onClick={revealNext}>
-                  {parts > 1 ? `Nächsten Punkt aufdecken (${revealed.size}/${parts})` : 'Antwort zeigen'}
-                  <kbd>Leertaste</kbd>
-                </button>
-                {parts > 1 && <button onClick={revealAll}>Alle aufdecken</button>}
-              </>
-            ) : (
-              RATINGS.map(({ r, label, cls }) => (
-                <button key={r} className={`rate ${cls}`} onClick={() => rate(r)}>
-                  <span>{label}</span>
-                  <small>{card.intervals ? formatInterval(card.intervals[String(r) as '1']) : ''}</small>
-                  <kbd>{r}</kbd>
-                </button>
-              ))
-            )}
-          </div>
-          <p className="muted queue-left">{queue.length - 1} weitere in dieser Runde</p>
-        </div>
-      )}
+            <div className="review-actions">
+              {!allRevealed ? (
+                <>
+                  <button className="btn primary" onClick={revealNext}>
+                    {parts > 1 ? `Nächster Punkt (${revealed.size}/${parts})` : 'Antwort zeigen'}
+                    <kbd>Leertaste</kbd>
+                  </button>
+                  {parts > 1 && (
+                    <button className="btn ghost" onClick={() => setRevealed(new Set(Array.from({ length: parts }, (_, i) => i)))}>
+                      Alle
+                    </button>
+                  )}
+                </>
+              ) : (
+                RATINGS.map(({ r, label, cls }) => (
+                  <button key={r} className={`rate ${cls}`} onClick={() => rate(r)}>
+                    <span>{label}</span>
+                    <small>{card.intervals ? formatInterval(card.intervals[String(r) as '1']) : ''}</small>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

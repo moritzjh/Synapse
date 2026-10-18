@@ -80,6 +80,7 @@ export interface Card {
   lapses: number
   stability: number
   intervals?: Record<'1' | '2' | '3' | '4', number>
+  exam_date: number | null
 }
 
 export interface ReviewStats {
@@ -91,12 +92,41 @@ export interface ReviewStats {
 
 export interface Status {
   semantic: { enabled: boolean; model: string; indexed: number; pending: number }
+  vault: string
+}
+
+export interface Exam {
+  id: number
+  name: string
+  date: number
+  notes: { id: number; title: string }[]
+  progress: {
+    cards: number
+    new: number
+    due: number
+    mastered: number
+    new_today: number
+    predicted_retention: number
+  }
+}
+
+export interface ExamInput {
+  name: string
+  date: string
+  note_ids: number[]
+}
+
+export const examApi = {
+  list: () => request<Exam[]>('/exams'),
+  create: (e: ExamInput) => request<Exam>('/exams', { method: 'POST', body: JSON.stringify(e) }),
+  update: (id: number, e: ExamInput) => request<Exam>(`/exams/${id}`, { method: 'PUT', body: JSON.stringify(e) }),
+  remove: (id: number) => request<void>(`/exams/${id}`, { method: 'DELETE' }),
 }
 
 export const cardApi = {
   noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),
-  queue: () => request<Card[]>('/review/queue'),
-  stats: () => request<ReviewStats>('/review/stats'),
+  queue: (exam = 0) => request<Card[]>(`/review/queue${exam ? `?exam=${exam}` : ''}`),
+  stats: (exam = 0) => request<ReviewStats>(`/review/stats${exam ? `?exam=${exam}` : ''}`),
   review: (id: number, rating: 1 | 2 | 3 | 4) =>
     request<Card>(`/cards/${id}/review`, { method: 'POST', body: JSON.stringify({ rating }) }),
 }

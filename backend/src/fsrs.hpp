@@ -27,9 +27,17 @@ struct Params {
                               2.2698,  0.2315,  2.9898, 0.51655, 0.6621};
   double desired_retention = 0.9;
   double maximum_interval_days = 36500;
+  // Recall probability the card should still have on exam day.
+  double exam_retention = 0.95;
 };
 
-CardState review(const CardState& card, Rating rating, int64_t now_ms, const Params& p = {});
+// `exam_ms` (optional) is the date of the next exam that covers this card.
+// Intervals are then shortened so the card is reviewed shortly before the
+// exam unless it would be remembered there with `exam_retention` anyway.
+CardState review(const CardState& card, Rating rating, int64_t now_ms, const Params& p = {}, int64_t exam_ms = 0);
+
+// Recall probability at an arbitrary point in time.
+double retrievability_at(const CardState& card, int64_t at_ms);
 
 // Recall probability right now (0..1); 0 for new cards.
 double retrievability(const CardState& card, int64_t now_ms);

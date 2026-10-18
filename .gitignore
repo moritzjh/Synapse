@@ -7,3 +7,5 @@ frontend/dist/
 models/
 backend/third_party/onnxruntime/
 uploads/
+vault/
+backend/build-dbg/

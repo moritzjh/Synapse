@@ -1,59 +1,24 @@
 #include <httplib.h>
 
-#include <chrono>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <json.hpp>
-#include <random>
 
+#include "mcp.hpp"
 #include "note_store.hpp"
 #include "semantic_index.hpp"
+#include "service.hpp"
+#include "vault.hpp"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 namespace {
 
-constexpr int kNewCardsPerDay = 20;
-
-int64_t now_ms() {
-  using namespace std::chrono;
-  return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
-
-json to_json(const Note& n) {
-  return {{"id", n.id}, {"title", n.title}, {"content", n.content},
-          {"created_at", n.created_at}, {"updated_at", n.updated_at}};
-}
-
-json to_json(const NoteSummary& n) {
-  return {{"id", n.id}, {"title", n.title}, {"updated_at", n.updated_at}};
-}
-
-json to_json(const Neighbor& n) { return {{"id", n.id}, {"title", n.title}, {"score", n.score}}; }
-
-json to_json(const Card& c) {
-  return {{"id", c.id},
-          {"note_id", c.note_id},
-          {"note_title", c.note_title},
-          {"kind", c.kind},
-          {"front", c.front},
-          {"data", c.data},
-          {"state", static_cast<int>(c.sched.state)},
-          {"due", c.sched.due},
-          {"reps", c.sched.reps},
-          {"lapses", c.sched.lapses},
-          {"stability", c.sched.stability},
-          {"difficulty", c.sched.difficulty}};
-}
-
-template <typename T>
-json to_json_array(const std::vector<T>& items) {
-  json arr = json::array();
-  for (const auto& i : items) arr.push_back(to_json(i));
-  return arr;
+std::string env(const char* name, const std::string& fallback) {
+  const char* v = std::getenv(name);
+  return v && *v ? v : fallback;
 }
 
 void send_json(httplib::Response& res, const json& body, int status = 200) {
@@ -61,39 +26,26 @@ void send_json(httplib::Response& res, const json& body, int status = 200) {
   res.set_content(body.dump(), "application/json");
 }
 
-void send_error(httplib::Response& res, int status, const std::string& msg) {
-  send_json(res, {{"error", msg}}, status);
-}
-
 int64_t path_id(const httplib::Request& req) { return std::stoll(req.matches[1]); }
 
-// Parses {"title": ..., "content": ...}; returns false and fills res on bad input.
-bool parse_note_body(const httplib::Request& req, httplib::Response& res,
-                     std::string& title, std::string& content) {
+json parse_body(const httplib::Request& req) {
   auto body = json::parse(req.body, nullptr, false);
-  if (body.is_discarded() || !body.is_object()) {
-    send_error(res, 400, "invalid JSON");
-    return false;
-  }
-  title = body.value("title", "Untitled");
-  const auto& c = body.value("content", json(""));
-  content = c.is_string() ? c.get<std::string>() : c.dump();
-  if (title.empty()) title = "Untitled";
-  return true;
+  if (body.is_discarded() || !body.is_object()) throw ServiceError(400, "invalid JSON");
+  return body;
 }
 
-std::string random_name() {
-  static std::mt19937_64 rng{std::random_device{}()};
-  static std::mutex mu;
-  std::lock_guard lock(mu);
-  char buf[17];
-  std::snprintf(buf, sizeof buf, "%016llx", static_cast<unsigned long long>(rng()));
-  return buf;
+// {"title", "content"} – content may be TipTap JSON (string or object) or
+// plain text; {"markdown"} is accepted instead of content.
+void note_fields(const json& body, std::string& title, std::string& content, bool& is_markdown) {
+  title = body.value("title", "Untitled");
+  is_markdown = body.contains("markdown");
+  const json& c = is_markdown ? body["markdown"] : body.value("content", json(""));
+  content = c.is_string() ? c.get<std::string>() : c.dump();
 }
 
 std::unique_ptr<Embedder> load_embedder() {
-  const char* dir = std::getenv("SYNAPSE_MODEL");
-  if (!dir || !*dir) {
+  std::string dir = env("SYNAPSE_MODEL", "");
+  if (dir.empty()) {
     std::cout << "semantic links disabled (set SYNAPSE_MODEL to a model directory)\n";
     return nullptr;
   }
@@ -105,163 +57,143 @@ std::unique_ptr<Embedder> load_embedder() {
   }
 }
 
+bool local_origin(const httplib::Request& req) {
+  if (!req.has_header("Origin")) return true;
+  std::string o = req.get_header_value("Origin");
+  for (const char* ok : {"http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1"})
+    if (o.rfind(ok, 0) == 0) return true;
+  return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string db_path = argc > 1 ? argv[1] : "synapse.db";
-  int port = std::getenv("PORT") ? std::atoi(std::getenv("PORT")) : 8080;
-  fs::path uploads = std::getenv("SYNAPSE_UPLOADS") ? std::getenv("SYNAPSE_UPLOADS") : "uploads";
-  fs::create_directories(uploads);
+  std::vector<std::string> args(argv + 1, argv + argc);
+  int port = std::stoi(env("PORT", "8080"));
+
+  // `synapse mcp [url]` – stdio MCP transport for Claude Desktop & co.
+  if (!args.empty() && args[0] == "mcp") {
+    return run_mcp_stdio_bridge(args.size() > 1 ? args[1] : "http://127.0.0.1:" + std::to_string(port));
+  }
+
+  std::string db_path = !args.empty() ? args[0] : env("SYNAPSE_DB", "synapse.db");
+  fs::path vault_dir = env("SYNAPSE_VAULT", "vault");
 
   NoteStore store(db_path);
   SemanticIndex semantic(store, load_embedder());
+  Vault vault(
+      store, vault_dir, [&](int64_t id) { semantic.note_changed(id); }, [&](int64_t id) { semantic.note_removed(id); });
+  vault.start();
+  Service svc(store, semantic, vault);
+  McpServer mcp(svc);
+
   httplib::Server srv;
   srv.set_payload_max_length(25 * 1024 * 1024);
-
   srv.set_default_headers({
       {"Access-Control-Allow-Origin", "*"},
       {"Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"},
-      {"Access-Control-Allow-Headers", "Content-Type"},
+      {"Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version"},
   });
-  srv.Options(R"(/api/.*)", [](const httplib::Request&, httplib::Response& res) { res.status = 204; });
+  srv.Options(R"(/(api|mcp).*)", [](const httplib::Request&, httplib::Response& res) { res.status = 204; });
 
   srv.set_exception_handler([](const httplib::Request&, httplib::Response& res, std::exception_ptr ep) {
     try {
       std::rethrow_exception(ep);
+    } catch (const ServiceError& e) {
+      send_json(res, {{"error", e.what()}}, e.status);
     } catch (const std::exception& e) {
-      send_error(res, 500, e.what());
+      send_json(res, {{"error", e.what()}}, 500);
     }
   });
 
-  srv.Get("/api/status", [&](const httplib::Request&, httplib::Response& res) {
-    send_json(res, {{"semantic",
-                     {{"enabled", semantic.enabled()},
-                      {"model", semantic.model()},
-                      {"indexed", semantic.indexed()},
-                      {"pending", semantic.pending()}}}});
-  });
+  using Req = const httplib::Request&;
+  using Res = httplib::Response&;
+
+  srv.Get("/api/status", [&](Req, Res res) { send_json(res, svc.status()); });
 
   // ---- notes ----
-
-  srv.Get("/api/notes", [&](const httplib::Request&, httplib::Response& res) {
-    send_json(res, to_json_array(store.list()));
+  srv.Get("/api/notes", [&](Req, Res res) { send_json(res, svc.list_notes()); });
+  srv.Get(R"(/api/notes/(\d+))", [&](Req req, Res res) {
+    json n = svc.get_note(path_id(req));
+    if (req.get_param_value("format") == "markdown") n["markdown"] = svc.note_markdown(path_id(req));
+    send_json(res, n);
   });
-
-  srv.Get(R"(/api/notes/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
-    auto note = store.get(path_id(req));
-    if (!note) return send_error(res, 404, "note not found");
-    send_json(res, to_json(*note));
-  });
-
-  srv.Post("/api/notes", [&](const httplib::Request& req, httplib::Response& res) {
+  srv.Post("/api/notes", [&](Req req, Res res) {
     std::string title, content;
-    if (!parse_note_body(req, res, title, content)) return;
-    Note note = store.create(title, content);
-    semantic.note_changed(note.id);
-    send_json(res, to_json(note), 201);
+    bool md;
+    note_fields(parse_body(req), title, content, md);
+    send_json(res, md ? svc.create_note_markdown(title, content) : svc.create_note(title, content), 201);
   });
-
-  srv.Put(R"(/api/notes/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
+  srv.Put(R"(/api/notes/(\d+))", [&](Req req, Res res) {
     std::string title, content;
-    if (!parse_note_body(req, res, title, content)) return;
-    auto note = store.update(path_id(req), title, content);
-    if (!note) return send_error(res, 404, "note not found");
-    semantic.note_changed(note->id);
-    send_json(res, to_json(*note));
-  });
-
-  srv.Delete(R"(/api/notes/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
+    bool md;
+    note_fields(parse_body(req), title, content, md);
     int64_t id = path_id(req);
-    if (!store.remove(id)) return send_error(res, 404, "note not found");
-    semantic.note_removed(id);
+    send_json(res, md ? svc.update_note_markdown(id, title, content) : svc.update_note(id, title, content));
+  });
+  srv.Delete(R"(/api/notes/(\d+))", [&](Req req, Res res) {
+    svc.delete_note(path_id(req));
+    res.status = 204;
+  });
+  srv.Get(R"(/api/notes/(\d+)/backlinks)", [&](Req req, Res res) { send_json(res, svc.backlinks(path_id(req))); });
+  srv.Get(R"(/api/notes/(\d+)/similar)", [&](Req req, Res res) { send_json(res, svc.similar(path_id(req))); });
+  srv.Get(R"(/api/notes/(\d+)/cards)", [&](Req req, Res res) { send_json(res, svc.note_cards(path_id(req))); });
+
+  srv.Get("/api/search", [&](Req req, Res res) { send_json(res, svc.search(req.get_param_value("q"))); });
+  srv.Get("/api/semantic-search", [&](Req req, Res res) { send_json(res, svc.semantic_search(req.get_param_value("q"))); });
+  srv.Get("/api/graph", [&](Req, Res res) { send_json(res, svc.graph()); });
+
+  // ---- flashcards ----
+  auto exam_param = [](Req req) {
+    std::string e = req.get_param_value("exam");
+    return e.empty() ? int64_t{0} : std::stoll(e);
+  };
+  srv.Get("/api/review/stats", [&](Req req, Res res) { send_json(res, svc.review_stats(exam_param(req))); });
+  srv.Get("/api/review/queue", [&](Req req, Res res) { send_json(res, svc.review_queue(exam_param(req))); });
+  srv.Post(R"(/api/cards/(\d+)/review)", [&](Req req, Res res) {
+    send_json(res, svc.review_card(path_id(req), parse_body(req).value("rating", 0)));
+  });
+
+  // ---- exams ----
+  srv.Get("/api/exams", [&](Req, Res res) { send_json(res, svc.list_exams()); });
+  srv.Get(R"(/api/exams/(\d+))", [&](Req req, Res res) { send_json(res, svc.get_exam(path_id(req))); });
+  srv.Post("/api/exams", [&](Req req, Res res) { send_json(res, svc.create_exam(parse_body(req)), 201); });
+  srv.Put(R"(/api/exams/(\d+))", [&](Req req, Res res) { send_json(res, svc.update_exam(path_id(req), parse_body(req))); });
+  srv.Delete(R"(/api/exams/(\d+))", [&](Req req, Res res) {
+    svc.delete_exam(path_id(req));
     res.status = 204;
   });
 
-  srv.Get(R"(/api/notes/(\d+)/backlinks)", [&](const httplib::Request& req, httplib::Response& res) {
-    send_json(res, to_json_array(store.backlinks(path_id(req))));
-  });
-
-  srv.Get(R"(/api/notes/(\d+)/similar)", [&](const httplib::Request& req, httplib::Response& res) {
-    send_json(res, to_json_array(store.titles_for(semantic.similar(path_id(req), 8))));
-  });
-
-  srv.Get(R"(/api/notes/(\d+)/cards)", [&](const httplib::Request& req, httplib::Response& res) {
-    send_json(res, to_json_array(store.note_cards(path_id(req))));
-  });
-
-  srv.Get("/api/search", [&](const httplib::Request& req, httplib::Response& res) {
-    json arr = json::array();
-    for (const auto& h : store.search(req.get_param_value("q"), 20)) {
-      arr.push_back({{"id", h.id}, {"title", h.title}, {"snippet", h.snippet}});
-    }
-    send_json(res, arr);
-  });
-
-  srv.Get("/api/semantic-search", [&](const httplib::Request& req, httplib::Response& res) {
-    send_json(res, to_json_array(store.titles_for(semantic.search(req.get_param_value("q"), 10))));
-  });
-
-  srv.Get("/api/graph", [&](const httplib::Request&, httplib::Response& res) {
-    Graph g = store.graph();
-    json edges = json::array();
-    for (const auto& e : g.edges) {
-      edges.push_back({{"source", e.source}, {"target", e.target}, {"kind", e.kind}, {"weight", e.weight}});
-    }
-    send_json(res, {{"nodes", to_json_array(g.nodes)}, {"edges", edges}});
-  });
-
-  // ---- flashcards ----
-
-  srv.Get("/api/review/stats", [&](const httplib::Request&, httplib::Response& res) {
-    ReviewStats st = store.review_stats(now_ms(), kNewCardsPerDay);
-    send_json(res, {{"due", st.due}, {"new", st.new_available}, {"total", st.total},
-                    {"reviewed_today", st.reviewed_today}});
-  });
-
-  srv.Get("/api/review/queue", [&](const httplib::Request&, httplib::Response& res) {
-    int64_t now = now_ms();
-    json arr = json::array();
-    for (const auto& c : store.review_queue(now, kNewCardsPerDay, 100)) {
-      json j = to_json(c);
-      json preview = json::object();
-      for (int r = fsrs::Again; r <= fsrs::Easy; ++r)
-        preview[std::to_string(r)] = fsrs::review(c.sched, static_cast<fsrs::Rating>(r), now).due - now;
-      j["intervals"] = preview;
-      arr.push_back(j);
-    }
-    send_json(res, arr);
-  });
-
-  srv.Post(R"(/api/cards/(\d+)/review)", [&](const httplib::Request& req, httplib::Response& res) {
-    auto body = json::parse(req.body, nullptr, false);
-    int rating = body.is_object() ? body.value("rating", 0) : 0;
-    if (rating < fsrs::Again || rating > fsrs::Easy) return send_error(res, 400, "rating must be 1..4");
-    auto card = store.review_card(path_id(req), static_cast<fsrs::Rating>(rating), now_ms());
-    if (!card) return send_error(res, 404, "card not found");
-    send_json(res, to_json(*card));
-  });
-
-  // ---- uploads (images) ----
-
-  srv.Post("/api/uploads", [&](const httplib::Request& req, httplib::Response& res) {
-    if (!req.has_file("file")) return send_error(res, 400, "multipart field 'file' missing");
+  // ---- uploads (images live in the vault's attachments folder) ----
+  srv.Post("/api/uploads", [&](Req req, Res res) {
+    if (!req.has_file("file")) throw ServiceError(400, "multipart field 'file' missing");
     const auto& f = req.get_file_value("file");
-    std::string ext = fs::path(f.filename).extension().string();
-    for (auto& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    static const std::set<std::string> allowed = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"};
-    if (!allowed.count(ext)) return send_error(res, 400, "unsupported image type");
-    std::string name = random_name() + ext;
-    std::ofstream(uploads / name, std::ios::binary).write(f.content.data(), static_cast<std::streamsize>(f.content.size()));
-    send_json(res, {{"url", "/uploads/" + name}}, 201);
+    send_json(res, {{"url", svc.save_upload(f.filename, f.content)}}, 201);
   });
-  srv.set_mount_point("/uploads", uploads.string());
+  srv.set_mount_point("/uploads", vault.attachments().string());
 
-  // Serve the built frontend in production (frontend/dist).
+  // ---- MCP (Streamable HTTP; responses are plain JSON, no SSE stream) ----
+  srv.Post("/mcp", [&](Req req, Res res) {
+    if (!local_origin(req)) return send_json(res, {{"error", "forbidden origin"}}, 403);
+    auto msg = json::parse(req.body, nullptr, false);
+    if (msg.is_discarded()) {
+      return send_json(res, {{"jsonrpc", "2.0"}, {"id", nullptr}, {"error", {{"code", -32700}, {"message", "parse error"}}}}, 400);
+    }
+    auto reply = mcp.handle(msg);
+    if (!reply) {
+      res.status = 202;
+      return;
+    }
+    send_json(res, *reply);
+  });
+  srv.Get("/mcp", [](Req, Res res) { res.status = 405; });
+
   if (const char* dir = std::getenv("SYNAPSE_STATIC")) srv.set_mount_point("/", dir);
 
-  std::cout << "synapse backend on http://localhost:" << port << " (db: " << db_path << ")\n";
-  if (!srv.listen("0.0.0.0", port)) {
-    std::cerr << "failed to bind port " << port << "\n";
+  std::string host = env("SYNAPSE_HOST", "127.0.0.1");
+  std::cout << "synapse on http://" << host << ":" << port << "  (db " << db_path << ", MCP at /mcp)" << std::endl;
+  if (!srv.listen(host, port)) {
+    std::cerr << "failed to bind " << host << ":" << port << "\n";
     return 1;
   }
 }

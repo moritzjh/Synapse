@@ -3,7 +3,7 @@
 Notizen + Karteikarten + Wissensgraph – RemNote-artig (Notion + Anki), mit einem Graphen wie in
 Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch verknüpft.
 
-- **Backend:** C++20 · cpp-httplib · SQLite (WAL + FTS5) · ONNX Runtime · hnswlib (HNSW-Vektorindex) · FSRS-5
+- **Backend:** C++20 · cpp-httplib · SQLite (WAL + FTS5) · ONNX Runtime · hnswlib (HNSW-Vektorindex) · FSRS-5 · md4c · MCP
 - **Frontend:** React 19 · TypeScript · Vite · TipTap (ProseMirror) · Mermaid · react-force-graph
 
 ## Features
@@ -33,6 +33,24 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 
 Gelernt wird mit dem FSRS-5-Algorithmus (wie im modernen Anki): Nochmal / Schwer / Gut / Einfach, Tasten
 `Leertaste` (aufdecken) und `1`–`4`. 20 neue Karten pro Tag.
+
+**Prüfungen** – trage ein, wann du welche Notizen können musst:
+- Neue Karten dieser Notizen werden gleichmäßig auf die Tage bis zur Prüfung verteilt (fertig spätestens am Vortag).
+- Würde eine Karte erst nach der Prüfung wieder drankommen und wäre die erwartete Erinnerung am Prüfungstag
+  < 95 %, wird sie auf den Vortag vorgezogen. Sichere Karten bleiben, wo sie sind.
+- Die Übersicht zeigt pro Prüfung die **erwartete Erinnerung am Prüfungstag**, sichere Karten, heutige neue Karten.
+- „Lernen“ lässt sich auf eine Prüfung einschränken.
+
+**Markdown-Vault (Obsidian-kompatibel)** – jede Notiz liegt zusätzlich als `.md`-Datei in `vault/`:
+- Öffne den Ordner einfach in Obsidian. Änderungen dort (oder in jedem anderen Editor) werden alle 2 s eingelesen,
+  Änderungen in Synapse sofort geschrieben.
+- Dateiname = Titel, Unterordner bleiben erhalten, Bilder liegen in `vault/attachments/`.
+- `synapse-id` im Front-Matter sorgt dafür, dass Umbenennen/Verschieben die Notiz (und ihre Lernhistorie) behält;
+  andere Front-Matter-Felder (tags, aliases …) bleiben unangetastet.
+- Gelöschte Notizen landen in `vault/.trash/`. Fehlt plötzlich mehr als die Hälfte aller Dateien (z. B. Laufwerk nicht
+  eingehängt), wird nichts gelöscht.
+
+**MCP-Server** – alles ist auch für KI-Assistenten (Claude & Co.) als Tool verfügbar, siehe unten.
 
 ## Einrichtung
 
@@ -66,23 +84,62 @@ das Frontend selbst aus.
 |-------------------|-----------------------------------------------------------------|
 | `PORT`            | HTTP-Port (Standard 8080)                                       |
 | `SYNAPSE_MODEL`   | Modellordner (`model.onnx`, `tokenizer.json`, `synapse.json`); ohne → keine Auto-Links |
-| `SYNAPSE_UPLOADS` | Ordner für hochgeladene Bilder (Standard `uploads`)             |
+| `SYNAPSE_VAULT`   | Markdown-Ordner (Standard `vault`)                              |
+| `SYNAPSE_HOST`    | Bind-Adresse (Standard `127.0.0.1`, nur lokal erreichbar)       |
 | `SYNAPSE_STATIC`  | gebautes Frontend ausliefern                                    |
 
 `synapse.json` im Modellordner: `prefix`/`query_prefix` (für e5: `"passage: "`/`"query: "`),
 `max_tokens`, `link_threshold` (ab welcher Kosinus-Ähnlichkeit eine Kante entsteht).
 
+## MCP-Server
+
+Der Backend-Prozess spricht das [Model Context Protocol](https://modelcontextprotocol.io) – über HTTP unter
+`http://127.0.0.1:8080/mcp` und über stdio mit `synapse mcp` (leitet an das laufende Backend weiter).
+
+**Claude Code**
+```bash
+claude mcp add --transport http synapse http://127.0.0.1:8080/mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "synapse": { "command": "/pfad/zu/synapse/backend/build/synapse", "args": ["mcp"] }
+  }
+}
+```
+
+| Tool            | Zweck                                                                  |
+|-----------------|------------------------------------------------------------------------|
+| `list_notes`    | alle Notizen                                                           |
+| `read_note`     | Notiz als Markdown + Backlinks + ähnliche Notizen (per id oder Titel)  |
+| `search_notes`  | Volltext- und/oder semantische Suche                                   |
+| `create_note`   | Notiz aus Markdown anlegen (inkl. Karteikarten-Syntax)                 |
+| `update_note`   | ersetzen, anhängen, umbenennen                                         |
+| `delete_note`   | löschen (Datei → `.trash`)                                             |
+| `get_graph`     | Wissensgraph mit Link- und Ähnlichkeitskanten                          |
+| `list_cards`    | Karteikarten einer Notiz                                               |
+| `review_queue`  | fällige Karten (optional pro Prüfung) – z. B. um dich abzufragen       |
+| `review_card`   | Bewertung 1–4 eintragen                                                |
+| `list_exams` / `create_exam` / `update_exam` / `delete_exam` | Prüfungen verwalten       |
+
+Beispiel: *„Lies meine Notizen zur Zellbiologie, erstelle Karteikarten für alles Wichtige und lege eine Prüfung
+für den 14. Februar an.“*
+
 ## Architektur
 
 ```
-React (TipTap-JSON) ──HTTP/JSON──▶ C++ Backend
-                                    ├─ NoteStore     SQLite: notes, wikilinks, cards, review_log, embeddings
+React (TipTap-JSON) ──HTTP/JSON──▶ C++ Backend ◀── MCP (HTTP /mcp, stdio) ── Claude & Co.
+                                    ├─ Service       gemeinsame Logik für REST und MCP
+                                    ├─ NoteStore     SQLite: notes, wikilinks, cards, review_log, exams, embeddings
+                                    ├─ Vault         .md-Dateien ⇄ Notizen (md4c-Parser, Polling, Rename-Erkennung)
                                     │                content.cpp: JSON → Text, Karten-Erkennung
                                     ├─ SemanticIndex Hintergrund-Thread, entprellt (1,5 s nach letzter Änderung)
                                     │   ├─ Tokenizer  WordPiece + Unigram aus tokenizer.json (eigene Impl.)
                                     │   ├─ Embedder   ONNX Runtime, Mean-Pooling, L2-Norm
                                     │   └─ HNSW       hnswlib, Kosinus über Inner Product
-                                    └─ FSRS-5        Scheduler für Karteikarten
+                                    └─ FSRS-5        Scheduler für Karteikarten, prüfungsbewusst
 ```
 
 Gemessen (all-MiniLM-L6-v2, 2 Threads): Volltextsuche ≈ 0,8 ms, semantische Suche inkl. Einbetten der
@@ -106,7 +163,10 @@ gegen die HuggingFace-Referenz geprüft (identische Token-IDs, identische Kosinu
 | GET     | `/api/review/stats`          | fällig / neu / heute gelernt                |
 | POST    | `/api/cards/:id/review`      | `{rating: 1..4}`                            |
 | POST    | `/api/uploads`               | Bild-Upload (multipart `file`)              |
-| GET     | `/api/status`                | Modell, Anzahl indexierter Notizen          |
+| GET/POST/PUT/DELETE | `/api/exams[/:id]` | Prüfungen inkl. Fortschritt                 |
+| GET     | `/api/review/queue?exam=`    | Lern-Warteschlange einer Prüfung            |
+| GET     | `/api/status`                | Modell, Anzahl indexierter Notizen, Vault   |
+| POST    | `/mcp`                       | MCP (JSON-RPC)                              |
 
 ## Roadmap
 
@@ -114,6 +174,7 @@ gegen die HuggingFace-Referenz geprüft (identische Token-IDs, identische Kosinu
 2. ✅ Lokales Embedding-Modell in C++, HNSW, automatische semantische Kanten
 3. ✅ Karteikarten (Basic, Reverse, Listen, Lückentext) mit FSRS
 4. ✅ Notion-artiger Editor (Tabellen, Code, Bilder, Diagramme, Slash-Menü)
-5. ⬜ Image Occlusion (Bildbereiche abdecken), Karten mit Formatierung/Bildern
-6. ⬜ Block-Ebene: Embeddings pro Absatz, Block-Referenzen, Ordner/Hierarchie
-7. ⬜ Automatische Begriffserkennung + Karten-Vorschläge, Freihand-Zeichnungen
+5. ✅ Prüfungs-Planung, Obsidian-Vault, MCP-Server, minimalistisches UI
+6. ⬜ Image Occlusion (Bildbereiche abdecken), Karten mit Formatierung/Bildern
+7. ⬜ Block-Ebene: Embeddings pro Absatz, Block-Referenzen, Ordner/Hierarchie
+8. ⬜ Automatische Begriffserkennung + Karten-Vorschläge, Freihand-Zeichnungen
