@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -15,7 +16,7 @@ using json = nlohmann::json;
 
 namespace {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 
 int64_t now_ms() {
   using namespace std::chrono;
@@ -103,6 +104,16 @@ void NoteStore::migrate() {
         path    TEXT NOT NULL UNIQUE,
         hash    TEXT NOT NULL,
         mtime   INTEGER NOT NULL
+      );
+    )sql");
+  }
+  if (version < 4) {
+    db_.exec(R"sql(
+      -- Colour and icon (emoji) of vault folders, keyed by folder path.
+      CREATE TABLE IF NOT EXISTS folder_meta (
+        path  TEXT PRIMARY KEY,
+        color TEXT NOT NULL DEFAULT '',
+        icon  TEXT NOT NULL DEFAULT ''
       );
     )sql");
   }
@@ -380,9 +391,26 @@ Graph NoteStore::graph() {
 namespace {
 
 // Restricts card queries to the notes of one exam (0 = all cards).
-std::string scope_sql(int64_t exam_id) {
-  if (!exam_id) return "";
-  return " AND c.note_id IN (SELECT note_id FROM exam_notes WHERE exam_id = " + std::to_string(exam_id) + ")";
+std::string sql_quote(const std::string& v) {
+  std::string out = "'";
+  for (char ch : v) out += ch == '\'' ? std::string("''") : std::string(1, ch);
+  return out + "'";
+}
+
+// Restricts card queries to an exam and/or a part of the vault: a folder
+// ("Uni/Bio") or a note ("Uni/Bio/Zelle.md", including its subpages in "Uni/Bio/Zelle/").
+std::string scope_sql(const CardScope& scope) {
+  std::string out;
+  if (scope.exam_id)
+    out += " AND c.note_id IN (SELECT note_id FROM exam_notes WHERE exam_id = " + std::to_string(scope.exam_id) + ")";
+  if (!scope.path.empty()) {
+    std::string dir = scope.path;
+    if (dir.size() > 3 && dir.compare(dir.size() - 3, 3, ".md") == 0) dir.resize(dir.size() - 3);
+    dir += "/";
+    out += " AND c.note_id IN (SELECT note_id FROM vault_files WHERE path = " + sql_quote(scope.path) +
+           " OR substr(path, 1, " + std::to_string(dir.size()) + ") = " + sql_quote(dir) + ")";
+  }
+  return out;
 }
 
 std::string card_select(const std::string& where) {
@@ -424,9 +452,9 @@ std::optional<Card> NoteStore::card(int64_t id) {
   return cards.front();
 }
 
-int NoteStore::new_introduced_today(int64_t now, int64_t exam_id) {
+int NoteStore::new_introduced_today(int64_t now, const CardScope& scope) {
   Stmt s(db_, ("SELECT COUNT(DISTINCT r.card_id) FROM review_log r JOIN cards c ON c.id = r.card_id"
-               " WHERE r.state_before = 0 AND r.ts >= ?" + scope_sql(exam_id)).c_str());
+               " WHERE r.state_before = 0 AND r.ts >= ?" + scope_sql(scope)).c_str());
   s.bind(1, local_day_start(now));
   s.step();
   return static_cast<int>(s.col_int(0));
@@ -435,18 +463,21 @@ int NoteStore::new_introduced_today(int64_t now, int64_t exam_id) {
 // New cards of an exam that still have to be introduced today so that all of
 // them have been seen at least a day before the exam.
 int NoteStore::exam_new_quota(int64_t now, int64_t exam_id, int64_t exam_date) {
-  Stmt s(db_, ("SELECT COUNT(*) FROM cards c WHERE c.state = 0" + scope_sql(exam_id)).c_str());
+  Stmt s(db_, ("SELECT COUNT(*) FROM cards c WHERE c.state = 0" + scope_sql({exam_id, ""})).c_str());
   s.step();
   int remaining = static_cast<int>(s.col_int(0));
-  int done_today = new_introduced_today(now, exam_id);
+  int done_today = new_introduced_today(now, {exam_id, ""});
   double days_left = double(exam_date - local_day_start(now)) / 86'400'000.0;
   int days = std::max(1, static_cast<int>(std::floor(days_left)) - 1);
   int per_day = static_cast<int>(std::ceil(double(remaining + done_today) / days));
   return std::max(0, per_day - done_today);
 }
 
-int NoteStore::new_limit(int64_t now, int new_per_day, int64_t exam_id) {
-  int base = std::max(0, new_per_day - new_introduced_today(now, 0));
+int NoteStore::new_limit(int64_t now, int new_per_day, const CardScope& scope) {
+  // Studying a folder or note on purpose: introduce all of its new cards.
+  if (!scope.path.empty()) return std::numeric_limits<int>::max() / 2;
+  int64_t exam_id = scope.exam_id;
+  int base = std::max(0, new_per_day - new_introduced_today(now, {}));
   int boost = 0;
   Stmt s(db_, exam_id ? "SELECT id, date FROM exams WHERE id = ? AND date > ?" : "SELECT id, date FROM exams WHERE ? = 0 AND date > ?");
   s.bind(1, exam_id).bind(2, now);
@@ -456,19 +487,19 @@ int NoteStore::new_limit(int64_t now, int new_per_day, int64_t exam_id) {
   return std::max(base, boost);
 }
 
-std::vector<Card> NoteStore::review_queue(int64_t now, int new_per_day, int limit, int64_t exam_id) {
+std::vector<Card> NoteStore::review_queue(int64_t now, int new_per_day, int limit, const CardScope& scope) {
   std::lock_guard lock(mu_);
   std::vector<Card> out;
   {
     // Cards of the nearest exam first, then by due date.
-    Stmt s(db_, card_select("c.state != 0 AND c.due <= ?" + scope_sql(exam_id) +
+    Stmt s(db_, card_select("c.state != 0 AND c.due <= ?" + scope_sql(scope) +
                             " ORDER BY exam_date IS NULL, exam_date, c.due LIMIT ?").c_str());
     s.bind(1, now).bind(2, static_cast<int64_t>(limit));
     out = query_cards(s);
   }
-  int room = std::min<int>(new_limit(now, new_per_day, exam_id), limit - static_cast<int>(out.size()));
+  int room = std::min<int>(new_limit(now, new_per_day, scope), limit - static_cast<int>(out.size()));
   if (room > 0) {
-    Stmt s(db_, card_select("c.state = 0" + scope_sql(exam_id) +
+    Stmt s(db_, card_select("c.state = 0" + scope_sql(scope) +
                             " ORDER BY exam_date IS NULL, exam_date, c.created_at, c.note_id, c.position LIMIT ?")
                     .c_str());
     s.bind(1, static_cast<int64_t>(room));
@@ -499,24 +530,59 @@ std::optional<Card> NoteStore::review_card(int64_t id, fsrs::Rating rating, int6
   return c;
 }
 
-ReviewStats NoteStore::review_stats(int64_t now, int new_per_day, int64_t exam_id) {
+ReviewStats NoteStore::review_stats(int64_t now, int new_per_day, const CardScope& scope) {
   std::lock_guard lock(mu_);
   ReviewStats st;
   {
     Stmt s(db_, ("SELECT COUNT(*), SUM(c.state != 0 AND c.due <= ?), SUM(c.state = 0) FROM cards c WHERE 1" +
-                 scope_sql(exam_id)).c_str());
+                 scope_sql(scope)).c_str());
     s.bind(1, now);
     s.step();
     st.total = static_cast<int>(s.col_int(0));
     st.due = static_cast<int>(s.col_int(1));
-    st.new_available = std::min(static_cast<int>(s.col_int(2)), new_limit(now, new_per_day, exam_id));
+    st.new_available = std::min(static_cast<int>(s.col_int(2)), new_limit(now, new_per_day, scope));
   }
   Stmt s(db_, ("SELECT COUNT(*) FROM review_log r JOIN cards c ON c.id = r.card_id WHERE r.ts >= ?" +
-               scope_sql(exam_id)).c_str());
+               scope_sql(scope)).c_str());
   s.bind(1, local_day_start(now));
   s.step();
   st.reviewed_today = static_cast<int>(s.col_int(0));
   return st;
+}
+
+// ---- folder colour / icon -------------------------------------------------------
+
+std::vector<FolderMeta> NoteStore::folder_meta() {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, "SELECT path, color, icon FROM folder_meta ORDER BY path");
+  std::vector<FolderMeta> out;
+  while (s.step()) out.push_back({s.col_text(0), s.col_text(1), s.col_text(2)});
+  return out;
+}
+
+void NoteStore::set_folder_meta(const FolderMeta& m) {
+  std::lock_guard lock(mu_);
+  if (m.color.empty() && m.icon.empty()) {
+    Stmt(db_, "DELETE FROM folder_meta WHERE path = ?").bind(1, m.path).run();
+    return;
+  }
+  Stmt(db_, "INSERT OR REPLACE INTO folder_meta(path, color, icon) VALUES (?, ?, ?)")
+      .bind(1, m.path).bind(2, m.color).bind(3, m.icon).run();
+}
+
+void NoteStore::move_folder_meta(const std::string& from, const std::string& to) {
+  std::lock_guard lock(mu_);
+  Stmt(db_, R"sql(
+    UPDATE OR REPLACE folder_meta SET path = ? || substr(path, length(?) + 1)
+    WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'
+  )sql")
+      .bind(1, to).bind(2, from).bind(3, from).bind(4, from).bind(5, from).run();
+}
+
+void NoteStore::remove_folder_meta(const std::string& path) {
+  std::lock_guard lock(mu_);
+  Stmt(db_, "DELETE FROM folder_meta WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'")
+      .bind(1, path).bind(2, path).bind(3, path).run();
 }
 
 // ---- exams --------------------------------------------------------------------
@@ -588,7 +654,7 @@ std::vector<Exam> NoteStore::list_exams() {
 ExamProgress NoteStore::exam_progress(const Exam& e, int64_t now) {
   std::lock_guard lock(mu_);
   ExamProgress p;
-  Stmt s(db_, card_select("1" + scope_sql(e.id)).c_str());
+  Stmt s(db_, card_select("1" + scope_sql({e.id, ""})).c_str());
   double sum = 0;
   for (const auto& c : query_cards(s)) {
     ++p.cards;

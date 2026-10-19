@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, cardApi, extractWikilinks, semanticApi, type Card, type Exam, type Neighbor, type Note, type NoteSummary } from '../api'
+import { api, cardApi, extractWikilinks, semanticApi, titleOf, type Card, type Exam, type Neighbor, type Note, type NoteSummary, type Tree } from '../api'
 import RichEditor, { toDoc, type Doc } from '../editor/RichEditor'
 import { Icon } from './Icons'
+import Crumbs from './Crumbs'
 
 interface Props {
   noteId: number
   notes: NoteSummary[]
+  tree: Tree
   exams: Exam[]
+  onOpenFolder: (path: string) => void
+  onStudy: (path: string, name: string) => void
   onSaved: () => void
   onOpenLink: (title: string) => void
   onOpenNote: (id: number) => void
@@ -32,15 +36,20 @@ export default function NotePage(props: Props) {
   const pending = useRef<{ title: string; doc?: Doc; markdown?: string } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const savedAt = useRef(0)
+  const saving = useRef(false)
+  const lastEdit = useRef(0)
   const notesRef = useRef(notes)
   notesRef.current = notes
   const propsRef = useRef(props)
   propsRef.current = props
+  const titleRef = useRef<HTMLInputElement>(null)
+  const focusTitle = useRef<boolean | null>(false) // null once done, so reloads don't steal focus
 
   const load = useCallback(async () => {
     const n = await api.getNote(noteId)
     const d = toDoc(n.content)
     savedAt.current = n.updated_at
+    if (focusTitle.current === false) focusTitle.current = n.title ? null : true // new note: start typing the title
     setTitle(n.title)
     setDoc(d)
     setText(docText(d))
@@ -57,9 +66,10 @@ export default function NotePage(props: Props) {
   // Reload when the note changed elsewhere (Obsidian, MCP) and we have no local edits.
   useEffect(() => {
     const t = setInterval(async () => {
-      if (pending.current || source !== null) return
+      const busy = () => pending.current || saving.current || Date.now() - lastEdit.current < 4000
+      if (busy() || source !== null) return
       const n = await api.getNote(noteId).catch(() => null)
-      if (n && n.updated_at !== savedAt.current && !pending.current) load()
+      if (n && n.updated_at !== savedAt.current && !busy()) load()
     }, 3000)
     return () => clearInterval(t)
   }, [noteId, load, source])
@@ -70,10 +80,16 @@ export default function NotePage(props: Props) {
     if (!p) return
     pending.current = null
     setStatus('saving')
-    const saved =
-      p.markdown !== undefined
-        ? await api.updateMarkdown(noteId, p.title, p.markdown)
-        : await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
+    saving.current = true
+    let saved
+    try {
+      saved =
+        p.markdown !== undefined
+          ? await api.updateMarkdown(noteId, p.title, p.markdown)
+          : await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
+    } finally {
+      saving.current = false
+    }
     savedAt.current = saved.updated_at
     setStatus(pending.current ? 'dirty' : 'saved')
     onSaved()
@@ -85,6 +101,7 @@ export default function NotePage(props: Props) {
 
   const schedule = (next: { title: string; doc?: Doc; markdown?: string }) => {
     pending.current = next
+    lastEdit.current = Date.now()
     setStatus('dirty')
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, SAVE_DELAY_MS)
@@ -104,34 +121,43 @@ export default function NotePage(props: Props) {
 
   const links = extractWikilinks(text)
   const self = notes.find((n) => n.id === noteId)
-  const crumbs = breadcrumbs(self?.path ?? '', notes)
+  const folder = (self?.path ?? '').split('/').slice(0, -1).join('/')
   const days = (d: number) => Math.ceil((d - Date.now()) / 86_400_000)
 
   return (
     <div className="scroll">
       <div className="note-top">
-        <nav className="crumbs">
-          {crumbs.map((c, i) =>
-            c.id ? (
-              <button key={i} onClick={() => onOpenNote(c.id!)}>{c.name}</button>
-            ) : (
-              <span key={i}>{c.name}</span>
-            ),
-          )}
-        </nav>
+        <Crumbs
+          folder={folder}
+          tree={props.tree}
+          onFolder={(p) => flush().then(() => props.onOpenFolder(p))}
+          onNote={(id) => flush().then(() => onOpenNote(id))}
+        />
         <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? 'Speichert…' : 'Bearbeitet'}</span>
+        {cards.length > 0 && self?.path && (
+          <button className="study-chip" title="Karten dieser Notiz lernen" onClick={() => flush().then(() => props.onStudy(self.path, titleOf(title)))}>
+            <Icon name="cards" /> Lernen
+          </button>
+        )}
         <button className={`icon-btn ${source !== null ? 'on' : ''}`} title="Markdown-Quelltext" onClick={toggleSource}>
           <Icon name="code" />
         </button>
         <button className="icon-btn" title="Lokaler Graph" onClick={props.onLocalGraph}>
           <Icon name="graph" />
         </button>
-        <button className="icon-btn" title="Notiz löschen" onClick={() => confirm(`„${title}“ löschen?`) && onDelete(noteId)}>
+        <button className="icon-btn" title="Notiz löschen" onClick={() => confirm(`„${titleOf(title)}“ löschen?`) && onDelete(noteId)}>
           <Icon name="trash" />
         </button>
       </div>
       <div className="page note-page">
         <input
+          ref={(el) => {
+            titleRef.current = el
+            if (el && focusTitle.current) {
+              focusTitle.current = null
+              el.focus()
+            }
+          }}
           className="title-input"
           value={title}
           placeholder="Ohne Titel"
@@ -203,7 +229,7 @@ export default function NotePage(props: Props) {
                 <h4>Erwähnt in</h4>
                 <div className="conn-list">
                   {backlinks.map((b) => (
-                    <button key={b.id} onClick={() => onOpenNote(b.id)}>{b.title}</button>
+                    <button key={b.id} onClick={() => onOpenNote(b.id)}>{titleOf(b.title)}</button>
                   ))}
                 </div>
               </section>
@@ -214,7 +240,7 @@ export default function NotePage(props: Props) {
                 <div className="conn-list">
                   {similar.slice(0, 6).map((s) => (
                     <button key={s.id} onClick={() => onOpenNote(s.id)}>
-                      {s.title} <span className="score">{Math.round(s.score * 100)}%</span>
+                      {titleOf(s.title)} <span className="score">{Math.round(s.score * 100)}%</span>
                     </button>
                   ))}
                 </div>
@@ -238,15 +264,6 @@ export default function NotePage(props: Props) {
       </div>
     </div>
   )
-}
-
-/** "Uni/Bio/Zelle/Mitose.md" → Uni › Bio › Zelle (a note, clickable). */
-function breadcrumbs(path: string, notes: NoteSummary[]) {
-  const parts = path.replace(/\.md$/, '').split('/').slice(0, -1)
-  return parts.map((name, i) => {
-    const key = parts.slice(0, i + 1).join('/') + '.md'
-    return { name, id: notes.find((n) => n.path === key)?.id }
-  })
 }
 
 function docText(node: unknown): string {

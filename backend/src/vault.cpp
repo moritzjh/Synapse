@@ -98,12 +98,21 @@ std::string compose(int64_t id, const std::vector<std::string>& front, const std
   return out + "---\n\n" + body;
 }
 
+const std::string kUntitled = "Ohne Titel";
+
 std::string file_stem(const std::string& title) {
   std::string out;
   for (char c : title) out += std::string("/\\:*?\"<>|#^[]").find(c) != std::string::npos ? '-' : c;
   size_t b = out.find_first_not_of(" ."), e = out.find_last_not_of(" .");
   out = b == std::string::npos ? "" : out.substr(b, e - b + 1);
-  return out.empty() ? "Untitled" : out.substr(0, 120);
+  return out.empty() ? kUntitled : out.substr(0, 120);
+}
+
+// "Ohne Titel", "Ohne Titel 2", … – file names given to notes without a title.
+bool is_untitled_stem(const std::string& stem) {
+  if (stem.rfind(kUntitled, 0) != 0) return false;
+  std::string rest = stem.substr(kUntitled.size());
+  return rest.empty() || (rest.size() > 1 && rest[0] == ' ' && rest.find_first_not_of("0123456789", 1) == std::string::npos);
 }
 
 bool skip_dir(const fs::path& p) {
@@ -315,6 +324,9 @@ void Vault::import_file(const std::string& rel, const std::string& text, int64_t
   Parsed p = parse_file(text);
   std::string title = fs::path(rel).stem().string();
   std::string content = markdown_to_doc(p.body).dump();
+  // A note without a title lives in "Ohne Titel.md" – keep its title empty.
+  if (note_id && is_untitled_stem(title))
+    if (auto existing = store_.get(*note_id); existing && existing->title.empty()) title.clear();
 
   int64_t id;
   std::string final_text = text;

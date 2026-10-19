@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, semanticApi, type SearchHit, type Status, type Tree } from '../api'
+import { api, semanticApi, titleOf, type SearchHit, type Status, type Tree } from '../api'
+import { FolderGlyph, FolderPicker } from './FolderIcon'
 import type { View } from '../App'
 import { Icon } from './Icons'
 import { ancestors, baseOf, buildTree, parentOf, type TreeNode } from './tree'
@@ -11,6 +12,8 @@ interface Props {
   status: Status | null
   onNavigate: (v: View) => void
   onCreateNote: (where?: { folder?: string; parentId?: number }) => void
+  onDeleteNote: (id: number) => void
+  onStudy: (path: string, name: string) => void
   onChanged: () => void
 }
 
@@ -28,15 +31,17 @@ function loadExpanded(): Set<string> {
   }
 }
 
-export default function Sidebar({ tree, view, due, status, onNavigate, onCreateNote, onChanged }: Props) {
+export default function Sidebar({ tree, view, due, status, onNavigate, onCreateNote, onDeleteNote, onStudy, onChanged }: Props) {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<Hit[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ node: TreeNode; x: number; y: number } | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [picker, setPicker] = useState<{ key: string; x: number; y: number } | null>(null)
   const nodes = useMemo(() => buildTree(tree), [tree])
   const selected = view.kind === 'note' ? view.id : null
+  const selectedFolder = view.kind === 'folder' ? view.path : null
 
   useEffect(() => {
     try {
@@ -46,13 +51,13 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
     }
   }, [expanded])
 
-  // Reveal the open note in the tree.
+  // Reveal the open note or folder in the tree.
   useEffect(() => {
-    const note = tree.notes.find((n) => n.id === selected)
-    if (!note?.path) return
-    const need = ancestors(note.path.replace(/\.md$/, ''))
+    const key = selectedFolder ?? tree.notes.find((n) => n.id === selected)?.path?.replace(/\.md$/, '')
+    if (!key) return
+    const need = ancestors(key)
     setExpanded((e) => (need.every((k) => e.has(k)) ? e : new Set([...e, ...need])))
-  }, [selected, tree.notes])
+  }, [selected, selectedFolder, tree.notes])
 
   useEffect(() => {
     if (!query.trim()) return setHits([])
@@ -98,9 +103,14 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
     onChanged()
   }
 
+  const deleteNote = (id: number, name: string) => {
+    if (confirm(`„${name}“ löschen? (Die Datei landet im Papierkorb .trash)`)) onDeleteNote(id)
+  }
+
   const deleteFolder = async (key: string) => {
     if (!confirm(`Ordner „${baseOf(key)}“ mit allen Notizen löschen? (Dateien landen im Papierkorb .trash)`)) return
     await api.deleteFolder(key)
+    if (selectedFolder && (selectedFolder === key || selectedFolder.startsWith(key + '/'))) onNavigate({ kind: 'folder', path: parentOf(key) })
     onChanged()
   }
 
@@ -140,7 +150,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
     const open = expanded.has(node.key)
     const hasChildren = node.children.length > 0
     const isNote = node.kind === 'note'
-    const active = isNote && node.note!.id === selected
+    const active = isNote ? node.note!.id === selected : node.key === selectedFolder
     return (
       <li key={`${node.kind}:${node.key}`}>
         <div
@@ -155,7 +165,11 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
             e.dataTransfer.effectAllowed = 'move'
           }}
           {...dropProps(node.key)}
-          onClick={() => (isNote ? onNavigate({ kind: 'note', id: node.note!.id }) : toggle(node.key))}
+          onClick={() => {
+            if (isNote) return onNavigate({ kind: 'note', id: node.note!.id })
+            onNavigate({ kind: 'folder', path: node.key })
+            setExpanded((x) => new Set([...x, node.key]))
+          }}
           onContextMenu={(e) => {
             e.preventDefault()
             setMenu({ node, x: e.clientX, y: e.clientY })
@@ -172,7 +186,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
             <Icon name="chevron" />
           </button>
           <span className="tree-icon">
-            <Icon name={isNote ? 'note' : 'folder'} />
+            {isNote ? <Icon name="note" /> : <FolderGlyph meta={tree.folder_meta?.[node.key]} />}
           </span>
           {renaming === node.key ? (
             <input
@@ -187,9 +201,16 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
               }}
             />
           ) : (
-            <span className="tree-name">{node.name}</span>
+            <span className={`tree-name ${isNote && !node.note!.title.trim() ? 'untitled' : ''}`}>{node.name}</span>
           )}
           <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="icon-btn"
+              title={isNote ? 'Karten dieser Notiz lernen' : 'Karten dieses Ordners lernen'}
+              onClick={() => onStudy(isNote ? node.note!.path : node.key, node.name)}
+            >
+              <Icon name="cards" />
+            </button>
             <button
               className="icon-btn"
               title={isNote ? 'Unterseite anlegen' : 'Notiz in diesem Ordner'}
@@ -251,8 +272,8 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
         <ul className="note-list">
           {hits.map((n) => (
             <li key={n.id} className={n.id === selected ? 'selected' : ''}>
-              <button onClick={() => onNavigate({ kind: 'note', id: n.id })} title={n.title}>
-                {n.title}
+              <button onClick={() => onNavigate({ kind: 'note', id: n.id })} title={titleOf(n.title)}>
+                {titleOf(n.title)}
                 {n.snippet && <span className="snippet" dangerouslySetInnerHTML={{ __html: escapeSnippet(n.snippet) }} />}
                 {n.semantic && <span className="snippet">ähnlicher Inhalt</span>}
               </button>
@@ -273,6 +294,8 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
               <button onClick={() => { setMenu(null); onCreateNote({ folder: menu.node.key }) }}>Neue Notiz</button>
               <button onClick={() => { setMenu(null); newFolder(menu.node.key) }}>Neuer Unterordner</button>
               <button onClick={() => { setMenu(null); setRenaming(menu.node.key) }}>Umbenennen</button>
+              <button onClick={() => { setMenu(null); setPicker({ key: menu.node.key, x: menu.x, y: menu.y }) }}>Farbe &amp; Symbol</button>
+              <button onClick={() => { setMenu(null); onStudy(menu.node.key, menu.node.name) }}>Karten lernen</button>
               <hr />
               <button className="danger" onClick={() => { setMenu(null); deleteFolder(menu.node.key) }}>Löschen</button>
             </>
@@ -281,13 +304,29 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
               <button onClick={() => { setMenu(null); onCreateNote({ parentId: menu.node.note!.id }) }}>Unterseite anlegen</button>
               <button onClick={() => { setMenu(null); newFolder(parentOf(menu.node.key)) }}>Neuer Ordner daneben</button>
               <button onClick={() => { setMenu(null); onNavigate({ kind: 'graph', focus: menu.node.note!.id }) }}>Lokaler Graph</button>
+              <button onClick={() => { setMenu(null); onStudy(menu.node.note!.path, menu.node.name) }}>Karten lernen</button>
               {parentOf(menu.node.key) && (
                 <button onClick={async () => { setMenu(null); await api.moveNote(menu.node.note!.id, ''); onChanged() }}>
                   Nach oben verschieben
                 </button>
               )}
+              <hr />
+              <button className="danger" onClick={() => { setMenu(null); deleteNote(menu.node.note!.id, menu.node.name) }}>Löschen</button>
             </>
           )}
+        </div>
+      )}
+
+      {picker && (
+        <div className="picker-anchor" style={{ left: Math.min(picker.x, 250), top: Math.min(picker.y, window.innerHeight - 330) }}>
+          <FolderPicker
+            meta={tree.folder_meta?.[picker.key]}
+            onClose={() => setPicker(null)}
+            onChange={async (m) => {
+              await api.setFolderMeta(picker.key, m)
+              onChanged()
+            }}
+          />
         </div>
       )}
 

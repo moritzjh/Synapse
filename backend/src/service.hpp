@@ -36,12 +36,13 @@ class Service {
   void delete_note(int64_t id);
 
   // folders & subpages
-  nlohmann::json tree();  // {folders: [...], notes: [{id, title, path}]}
+  nlohmann::json tree();  // {folders: [...], folder_meta: {path: {color, icon}}, notes: [{id, title, path}]}
   nlohmann::json move_note(int64_t id, const std::string& folder);
   nlohmann::json create_subpage(int64_t parent_id, const std::string& title, const std::string& content);
   std::string create_folder(const std::string& path);
   void rename_folder(const std::string& from, const std::string& to);
   void delete_folder(const std::string& path);
+  void set_folder_meta(const std::string& path, const std::string& color, const std::string& icon);
 
   // database blocks inside a note (Notion-style tables/boards)
   nlohmann::json databases(int64_t note_id);
@@ -59,8 +60,8 @@ class Service {
 
   // flashcards
   nlohmann::json note_cards(int64_t note_id);
-  nlohmann::json review_queue(int64_t exam_id, int limit = 100);
-  nlohmann::json review_stats(int64_t exam_id);
+  nlohmann::json review_queue(const CardScope& scope, int limit = 100);
+  nlohmann::json review_stats(const CardScope& scope);
   nlohmann::json review_card(int64_t card_id, int rating);
 
   // exams

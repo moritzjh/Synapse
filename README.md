@@ -9,14 +9,21 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 ## Features
 
 **Ordner & Unterseiten**
-- Ordner und Unterordner in der Seitenleiste (Drag & Drop, Rechtsklick-Menü, Umbenennen, Löschen → `.trash`)
-- Unterseiten wie in Notion: `Zelle.md` + Ordner `Zelle/` (Obsidian-Folder-Note-Konvention), Breadcrumbs über der Seite
+- Ordner und Unterordner in der Seitenleiste (Drag & Drop, Rechtsklick-Menü, Umbenennen, Löschen → `.trash`);
+  Notizen lassen sich dort ebenfalls löschen
+- Klick auf einen Ordner öffnet ihn als Seite: Unterordner als Kacheln, Notizen als Liste, Anzahl Karten, „Lernen“
+- Ordner bekommen eine **Farbe** und/oder ein **Emoji** (Klick auf das Ordnersymbol oder Rechtsklick → „Farbe & Symbol“)
+- Klickbarer **Pfad** über jeder Notiz und jedem Ordner (`Notizen › Uni › Bio`)
+- Unterseiten wie in Notion: `Zelle.md` + Ordner `Zelle/` (Obsidian-Folder-Note-Konvention)
 - `/Unterseite` legt eine Kindseite an und fügt einen Seiten-Block ein
 
 **Notizen (Notion-Stil)**
 - Fett, kursiv, unterstrichen, durchgestrichen, Markieren, Inline-Code, Überschriften
 - Listen, To-dos, Zitate, Trennlinien, Tabellen (Zeilen/Spalten hinzufügen, Breite ziehen)
-- Codeblöcke mit Syntax-Highlighting
+- Codeblöcke mit Syntax-Highlighting (Python, JS/TS, C/C++, Java, Rust, Go, SQL, …): Sprache wird automatisch
+  erkannt oder oben im Block gewählt, Tab rückt ein, „Kopieren“-Knopf. Eingefügter Code (aus IDE, Terminal, …)
+  landet automatisch in einem Codeblock statt als lose Absätze
+- Neue Notizen starten ohne Titel („Ohne Titel“ ist nur der Platzhalter), der Cursor steht direkt im Titel
 - Bilder: Button, Einfügen aus der Zwischenablage oder Drag & Drop (Upload ins Backend)
 - Diagramme/Grafiken mit [Mermaid](https://mermaid.js.org) (Flowchart, Sequenz, Mindmap, Pie, Gantt …)
 - Callouts (`> [!tip]` in Obsidian) und aufklappbare Toggles
@@ -45,14 +52,19 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 
 | Schreibweise                         | Karte                                                  |
 |--------------------------------------|--------------------------------------------------------|
-| `Frage >> Antwort`                   | Vorderseite → Rückseite                                |
+| `Frage >> Antwort`                   | Vorderseite → Rückseite (`Frage>>` reicht, die Leerzeichen kommen automatisch) |
 | `Begriff :: Definition`              | zwei Karten (vorwärts + rückwärts)                     |
-| `Frage >>` + Aufzählung darunter     | Listen-Karte: Punkte werden **einzeln aufgedeckt**     |
+| `Frage >>` + Aufzählung darunter     | Listen-Karte: Punkte werden **einzeln aufgedeckt**. Enter nach `Frage >>` startet die Aufzählung direkt; in einer Aufzählung wird daraus eine eingerückte Unterliste |
 | `Die {{Mitochondrien}} sind …`       | Lückentext: jede Lücke ist **abgedeckt** und einzeln aufdeckbar |
 | Bild → „Abdecken“, Rechtecke ziehen  | **Bild-Abdeckung**: Bereiche werden schrittweise aufgedeckt (optional mit Antwort-Text) |
 
 Gelernt wird mit dem FSRS-5-Algorithmus (wie im modernen Anki): Nochmal / Schwer / Gut / Einfach, Tasten
-`Leertaste` (aufdecken) und `1`–`4`. 20 neue Karten pro Tag.
+`Leertaste` (aufdecken) und `1`–`4`. 20 neue Karten pro Tag. Lange Karten scrollen innerhalb der Karte.
+
+**Gezielt lernen**: Jede Notiz und jeder Ordner hat in der Seitenleiste einen kleinen Karten-Knopf (beim
+Darüberfahren), Notizen mit Karten zusätzlich „Lernen“ oben rechts, Ordner-Seiten einen „Lernen“-Knopf. Gelernt
+werden dann nur die Karten dieser Notiz (inkl. Unterseiten) bzw. dieses Ordners (inkl. Unterordner) – fällige
+Wiederholungen und alle neuen Karten des Bereichs.
 
 **Prüfungen** – trage ein, wann du welche Notizen können musst:
 - Neue Karten dieser Notizen werden gleichmäßig auf die Tage bis zur Prüfung verteilt (fertig spätestens am Vortag).
@@ -229,6 +241,9 @@ gegen die HuggingFace-Referenz geprüft (identische Token-IDs, identische Kosinu
 | POST    | `/api/uploads`               | Bild-Upload (multipart `file`)              |
 | GET/POST/PUT/DELETE | `/api/exams[/:id]` | Prüfungen inkl. Fortschritt                 |
 | GET     | `/api/review/queue?exam=`    | Lern-Warteschlange einer Prüfung            |
+| GET     | `/api/review/queue?path=`    | nur Karten eines Ordners (`Uni/Bio`) oder einer Notiz (`Uni/Bio/Zelle.md`, inkl. Unterseiten); gilt auch für `/stats` |
+| GET     | `/api/tree`                  | Ordner, Notizen mit Pfad, `folder_meta` (Farbe/Emoji) |
+| PUT     | `/api/folders/meta`          | `{path, color, icon}` – Ordnerfarbe/-emoji (leer = entfernen) |
 | GET     | `/api/status`                | Modell, Anzahl indexierter Notizen, Vault   |
 | POST    | `/mcp`                       | MCP (JSON-RPC)                              |
 

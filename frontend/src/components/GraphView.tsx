@@ -174,7 +174,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
     const out = {
       nodes: nodes.map((n): GNode => {
         const p = prev.get(n.id)
-        return { id: n.id, title: n.title, group: n.group, color: n.color, degree: degree.get(n.id) ?? 0, x: p?.x, y: p?.y }
+        return { id: n.id, title: n.title.trim() || 'Ohne Titel', group: n.group, color: n.color, degree: degree.get(n.id) ?? 0, x: p?.x, y: p?.y }
       }),
       links: links.map((l) => ({ ...l })),
     }

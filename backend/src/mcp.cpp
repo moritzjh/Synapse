@@ -259,13 +259,16 @@ void McpServer::register_tools() {
                     }});
 
   tools_.push_back({"review_queue", "Cards to review",
-                    "Flashcards that are due now (and new cards for today), optionally only for one exam. Use to quiz the user.",
-                    schema({{"exam_id", prop("integer", "Only cards of this exam")}, {"limit", prop("integer", "Max cards (default 20)")}}),
+                    "Flashcards that are due now (and new cards for today), optionally only for one exam or one part of the vault. Use to quiz the user.",
+                    schema({{"exam_id", prop("integer", "Only cards of this exam")},
+                            {"path", prop("string", "Only cards in this folder (\"Uni/Bio\") or note file (\"Uni/Bio/Zelle.md\", incl. subpages)")},
+                            {"limit", prop("integer", "Max cards (default 20)")}}),
                     [this](const json& a) {
-                      json q = service_.review_queue(a.value("exam_id", int64_t{0}), a.value("limit", 20));
+                      CardScope scope{a.value("exam_id", int64_t{0}), a.value("path", std::string())};
+                      json q = service_.review_queue(scope, a.value("limit", 20));
                       std::string text;
                       for (const auto& c : q) text += card_text(c) + "\n";
-                      return ToolResult{text.empty() ? "Nothing due." : text, {{"cards", q}, {"stats", service_.review_stats(a.value("exam_id", int64_t{0}))}}};
+                      return ToolResult{text.empty() ? "Nothing due." : text, {{"cards", q}, {"stats", service_.review_stats(scope)}}};
                     }});
 
   tools_.push_back({"review_card", "Grade a card",
