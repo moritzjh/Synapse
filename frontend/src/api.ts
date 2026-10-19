@@ -4,6 +4,7 @@ export interface NoteSummary {
   updated_at: number
   /** Vault-relative Markdown file, e.g. "Uni/Bio/Zelle.md". */
   path: string
+  created_at?: number
 }
 
 export interface Tree {

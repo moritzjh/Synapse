@@ -29,6 +29,9 @@ const paths = {
   table: 'M2.5 3h11v10h-11zM2.5 6.5h11M2.5 10h11M6.5 6.5V13',
   board: 'M2.5 3h3v9h-3zM6.5 3h3v6h-3zM10.5 3h3v10h-3z',
   chart: 'M8 13.5a5.5 5.5 0 1 1 5.5-5.5H8z',
+  reset: 'M3 8a5 5 0 1 0 1.5-3.6M3 2.5v2.5h2.5',
+  play: 'M5 3.5v9l7-4.5z',
+  fit: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10',
 }
 
 export type IconName = keyof typeof paths

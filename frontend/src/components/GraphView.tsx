@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import { forceCollide, forceX, forceY } from 'd3-force'
 import { api, type GraphData } from '../api'
 import { Icon } from './Icons'
+import GraphPanel from './graph/GraphPanel'
+import { loadSettings, matchesGroup, palette, saveSettings, type Palette, type Settings } from './graph/settings'
 
 interface GNode {
   id: number
   title: string
   group: string
+  color: string
   degree: number
   x?: number
   y?: number
@@ -20,52 +23,31 @@ interface GLink {
   weight: number
 }
 
-interface Settings {
-  colorByFolder: boolean
-  labels: 'auto' | 'always' | 'hover'
-  semantic: boolean
-  links: boolean
-  subpages: boolean
-  colorDepth: 1 | 2
-  minSimilarity: number
-  orphans: boolean
-  arrows: boolean
-  nodeSize: number
-  repel: number
-  distance: number
-  depth: number
-  hiddenGroups: string[]
-}
-
-const DEFAULTS: Settings = {
-  colorByFolder: true,
-  labels: 'auto',
-  semantic: true,
-  links: true,
-  subpages: true,
-  colorDepth: 1,
-  minSimilarity: 0,
-  orphans: true,
-  arrows: false,
-  nodeSize: 1,
-  repel: 140,
-  distance: 50,
-  depth: 2,
-  hiddenGroups: [],
-}
-const STORE = 'synapse.graph'
 const ROOT_GROUP = 'Ohne Ordner'
-const MAX_HUES = 8 // further folders share a neutral colour (never generate new hues)
+const idOf = (v: number | GNode) => (typeof v === 'object' ? v.id : v)
 
-function loadSettings(): Settings {
-  try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORE) ?? '{}') }
-  } catch {
-    return DEFAULTS
-  }
+/** Folder a note belongs to for colouring: top level, or top level + one subfolder. */
+function folderOf(path: string, depth: 1 | 2) {
+  const parts = path.split('/').slice(0, -1)
+  return parts.length ? parts.slice(0, depth).join(' / ') : ROOT_GROUP
 }
 
-const idOf = (v: number | GNode) => (typeof v === 'object' ? v.id : v)
+function withAlpha(color: string, a: number) {
+  if (color.startsWith('#') && color.length === 7) {
+    const n = parseInt(color.slice(1), 16)
+    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+  }
+  return color
+}
+
+// a fixed star field (positions in 0..1) so it doesn't jump between frames
+const STARS = Array.from({ length: 220 }, (_, i) => {
+  const r = (k: number) => {
+    const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453
+    return x - Math.floor(x)
+  }
+  return { x: r(1), y: r(2), s: 0.4 + r(3) * 1.3, p: r(4) * Math.PI * 2, d: 0.02 + r(5) * 0.06 }
+})
 
 export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; onOpen: (id: number) => void; onFocus: (id?: number) => void }) {
   const [raw, setRaw] = useState<GraphData | null>(null)
@@ -73,22 +55,20 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
   const [panel, setPanel] = useState(false)
   const [query, setQuery] = useState('')
   const [hover, setHover] = useState<number | null>(null)
+  const [reveal, setReveal] = useState<number | null>(null) // time-lapse: number of notes shown
   const box = useRef<HTMLDivElement>(null)
   const fg = useRef<ForceGraphMethods<GNode, GLink> | undefined>(undefined)
   const [size, setSize] = useState({ w: 800, h: 600 })
-  const theme = useTheme()
   const fitted = useRef(false)
+  const alpha = useRef(new Map<number, number>()) // animated per-node emphasis 0..1
+  const prevNodes = useRef<GNode[]>([])
+  const cssTheme = useCssTheme()
+  const pal: Palette = useMemo(() => palette(settings.style, () => getComputedStyle(document.documentElement)), [settings.style, cssTheme])
 
   useEffect(() => {
     api.graph().then(setRaw)
   }, [])
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(settings))
-    } catch {
-      /* private mode */
-    }
-  }, [settings])
+  useEffect(() => saveSettings(settings), [settings])
   useEffect(() => {
     if (!box.current) return
     const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }))
@@ -96,40 +76,76 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
     return () => ro.disconnect()
   }, [])
 
-  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setSettings((s) => ({ ...s, [k]: v }))
+  const set = useCallback(<K extends keyof Settings>(k: K, v: Settings[K]) => setSettings((s) => ({ ...s, [k]: v })), [])
 
-  // Folder groups get colours in a fixed (alphabetical) order so a folder keeps its colour.
-  const groups = useMemo(() => {
-    const names = [...new Set((raw?.nodes ?? []).map((n) => groupOf(n.path, settings.colorDepth)))].sort((a, b) =>
-      a === ROOT_GROUP ? 1 : b === ROOT_GROUP ? -1 : a.localeCompare(b, 'de'),
-    )
-    return names.map((name, i) => ({ name, color: name === ROOT_GROUP || i >= MAX_HUES ? theme.neutral : theme.series[i] }))
-  }, [raw, theme, settings.colorDepth])
-  const colorOf = useMemo(() => new Map(groups.map((g) => [g.name, g.color])), [groups])
+  // ---- groups & colours --------------------------------------------------------------
+
+  // "Auto": colour by subfolder when most notes live in one top-level folder (e.g. everything under "Uni").
+  const depth: 1 | 2 = useMemo(() => {
+    if (settings.colorDepth !== 0) return settings.colorDepth
+    const nodes = raw?.nodes ?? []
+    const counts = new Map<string, number>()
+    for (const n of nodes) counts.set(folderOf(n.path, 1), (counts.get(folderOf(n.path, 1)) ?? 0) + 1)
+    const top = Math.max(0, ...counts.values())
+    return nodes.length && top / nodes.length > 0.55 ? 2 : 1
+  }, [raw, settings.colorDepth])
+
+  const folders = useMemo(
+    () =>
+      [...new Set((raw?.nodes ?? []).map((n) => folderOf(n.path, depth)))].sort((a, b) =>
+        a === ROOT_GROUP ? 1 : b === ROOT_GROUP ? -1 : a.localeCompare(b, 'de'),
+      ),
+    [raw, depth],
+  )
+
+  const classify = useCallback(
+    (title: string, path: string): { group: string; color: string } => {
+      for (const g of settings.groups)
+        if (matchesGroup(g, title, path)) return { group: g.query.trim(), color: pal.series[g.color % 8] }
+      if (settings.autoGroups) {
+        const f = folderOf(path, depth)
+        const i = folders.indexOf(f)
+        return { group: f, color: f === ROOT_GROUP || i >= 8 ? pal.neutral : pal.series[i] }
+      }
+      return { group: 'Notizen', color: pal.neutral }
+    },
+    [settings.groups, settings.autoGroups, depth, folders, pal],
+  )
+
+  // ---- data -----------------------------------------------------------------------------
+
+  const order = useMemo(
+    () => [...(raw?.nodes ?? [])].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0) || a.id - b.id).map((n) => n.id),
+    [raw],
+  )
 
   const data = useMemo(() => {
     if (!raw) return { nodes: [] as GNode[], links: [] as GLink[] }
-    const hidden = new Set(settings.hiddenGroups)
-    const depth = settings.colorDepth
-    let nodes = raw.nodes.filter((n) => !hidden.has(groupOf(n.path, depth)))
+    const s = settings
+    const hidden = new Set(s.hiddenGroups)
+    const shownByTime = reveal !== null ? new Set(order.slice(0, reveal)) : null
+    let nodes = raw.nodes
+      .map((n) => ({ ...n, ...classify(n.title, n.path) }))
+      .filter((n) => !hidden.has(n.group) && (!shownByTime || shownByTime.has(n.id)))
     let ids = new Set(nodes.map((n) => n.id))
-    // Subpages: "A/B.md" is the parent of everything in "A/B/".
+
+    // subpages: "A/B.md" is the parent of everything in "A/B/"
     const byKey = new Map(raw.nodes.map((n) => [n.path.replace(/\.md$/, ''), n.id]))
-    const childEdges = settings.subpages
+    const child = s.subpages
       ? raw.nodes.flatMap((n) => {
           const key = n.path.replace(/\.md$/, '')
           const parent = key.includes('/') ? byKey.get(key.slice(0, key.lastIndexOf('/'))) : undefined
           return parent !== undefined ? [{ source: parent, target: n.id, kind: 'child' as const, weight: 1 }] : []
         })
       : []
-    let links = [...raw.edges, ...childEdges].filter(
+    let links = [...raw.edges, ...child].filter(
       (e) =>
         ids.has(e.source) &&
         ids.has(e.target) &&
-        (e.kind === 'child' || (e.kind === 'link' ? settings.links : settings.semantic && e.weight >= settings.minSimilarity)),
+        (e.kind === 'child' || (e.kind === 'link' ? s.links : s.semantic && e.weight >= s.minSimilarity)),
     )
+
     if (focus !== undefined && ids.has(focus)) {
-      // local graph: everything within `depth` hops of the focused note
       const adj = new Map<number, number[]>()
       for (const l of links) {
         adj.set(l.source, [...(adj.get(l.source) ?? []), l.target])
@@ -137,7 +153,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
       }
       const keep = new Set([focus])
       let frontier = [focus]
-      for (let d = 0; d < settings.depth; d++) {
+      for (let d = 0; d < s.depth; d++) {
         frontier = frontier.flatMap((id) => adj.get(id) ?? []).filter((id) => !keep.has(id))
         frontier.forEach((id) => keep.add(id))
       }
@@ -145,17 +161,27 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
       ids = keep
       links = links.filter((l) => keep.has(l.source) && keep.has(l.target))
     }
+
     const degree = new Map<number, number>()
     for (const l of links) {
       degree.set(l.source, (degree.get(l.source) ?? 0) + 1)
       degree.set(l.target, (degree.get(l.target) ?? 0) + 1)
     }
-    if (!settings.orphans) nodes = nodes.filter((n) => degree.has(n.id) || n.id === focus)
-    return {
-      nodes: nodes.map((n): GNode => ({ id: n.id, title: n.title, group: groupOf(n.path, depth), degree: degree.get(n.id) ?? 0 })),
+    if (!s.orphans) nodes = nodes.filter((n) => degree.has(n.id) || n.id === focus)
+
+    // keep positions of nodes that already exist (time-lapse adds nodes without reshuffling)
+    const prev = new Map(prevNodes.current.map((n) => [n.id, n]))
+    const out = {
+      nodes: nodes.map((n): GNode => {
+        const p = prev.get(n.id)
+        return { id: n.id, title: n.title, group: n.group, color: n.color, degree: degree.get(n.id) ?? 0, x: p?.x, y: p?.y }
+      }),
       links: links.map((l) => ({ ...l })),
     }
-  }, [raw, settings, focus])
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raw, settings.hiddenGroups, settings.subpages, settings.links, settings.semantic, settings.minSimilarity, settings.orphans, settings.depth, focus, classify, reveal, order])
+  prevNodes.current = data.nodes
 
   const neighbors = useMemo(() => {
     const m = new Map<number, Set<number>>()
@@ -174,69 +200,153 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
     return q ? new Set(data.nodes.filter((n) => n.title.toLowerCase().includes(q)).map((n) => n.id)) : null
   }, [query, data])
 
-  // Highlighted set: hovered node + neighbours, or search matches.
-  const lit = useMemo(() => {
-    if (hover !== null) return new Set([hover, ...(neighbors.get(hover) ?? [])])
-    return matches
-  }, [hover, neighbors, matches])
+  const lit = useMemo(() => (hover !== null ? new Set([hover, ...(neighbors.get(hover) ?? [])]) : matches), [hover, neighbors, matches])
+  const litRef = useRef(lit)
+  litRef.current = lit
 
-  const radius = (n: GNode) => (3 + Math.sqrt(n.degree) * 2.2) * settings.nodeSize
+  const radius = (n: GNode) => (2.4 + Math.sqrt(n.degree) * 1.7) * settings.nodeSize
+
+  // ---- forces -----------------------------------------------------------------------------
 
   useEffect(() => {
     const g = fg.current
     if (!g) return
-    ;(g.d3Force('charge') as unknown as { strength: (v: number) => void } | undefined)?.strength(-settings.repel)
-    ;(g.d3Force('link') as unknown as { distance: (v: number) => void } | undefined)?.distance(settings.distance)
-    g.d3Force('collide', forceCollide<GNode>((n) => radius(n) + 6) as never)
-    // weak gravity keeps unconnected notes close instead of drifting off-screen
-    g.d3Force('x', forceX<GNode>(0).strength(0.05) as never)
-    g.d3Force('y', forceY<GNode>(0).strength(0.05) as never)
+    const charge = g.d3Force('charge') as unknown as { strength: (v: number) => void; distanceMax: (v: number) => void } | undefined
+    charge?.strength(-settings.repel)
+    charge?.distanceMax(600)
+    const link = g.d3Force('link') as unknown as { distance: (v: number) => void; strength: (v: number) => void } | undefined
+    link?.distance(settings.distance)
+    link?.strength(settings.linkForce)
+    g.d3Force('collide', forceCollide<GNode>((n) => radius(n) + 4) as never)
+    g.d3Force('x', forceX<GNode>(0).strength(settings.center) as never)
+    g.d3Force('y', forceY<GNode>(0).strength(settings.center) as never)
     g.d3ReheatSimulation()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.repel, settings.distance, settings.nodeSize, data])
+  }, [settings.repel, settings.distance, settings.linkForce, settings.center, settings.nodeSize, data])
 
-  // Labels are drawn last, most important first, and skipped where they would overlap.
+  // ---- time-lapse (Obsidian's "Animate") -------------------------------------------------------
+
+  const animate = () => {
+    if (!raw) return
+    const total = order.length
+    let n = 0
+    setReveal(0)
+    const step = Math.max(1, Math.ceil(total / 90))
+    const t = setInterval(() => {
+      n += step
+      if (n >= total) {
+        clearInterval(t)
+        setReveal(null)
+      } else setReveal(n)
+    }, 55)
+  }
+
+  // ---- drawing ------------------------------------------------------------------------------
+
+  // eased emphasis per node: 1 = highlighted/normal, 0.12 = dimmed
+  const emphasis = (id: number) => {
+    const target = lit === null || lit.has(id) ? 1 : 0.12
+    const cur = alpha.current.get(id) ?? target
+    const next = cur + (target - cur) * 0.18
+    alpha.current.set(id, Math.abs(next - target) < 0.005 ? target : next)
+    return next
+  }
+
+  const drawBackground = (ctx: CanvasRenderingContext2D, scale: number) => {
+    const t = ctx.getTransform()
+    const W = ctx.canvas.width, H = ctx.canvas.height
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    if (pal.bg2) {
+      const g = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.max(W, H) * 0.75)
+      g.addColorStop(0, pal.bg)
+      g.addColorStop(1, pal.bg2)
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, W, H)
+    }
+    if (settings.background === 'stars') {
+      const now = performance.now() / 1000
+      for (const st of STARS) {
+        // slow parallax with panning
+        const x = (((st.x * W + t.e * st.d) % W) + W) % W
+        const y = (((st.y * H + t.f * st.d) % H) + H) % H
+        ctx.globalAlpha = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(now * 0.8 + st.p))
+        ctx.fillStyle = '#ffffff'
+        ctx.beginPath()
+        ctx.arc(x, y, st.s * (ctx.canvas.width / size.w), 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    ctx.restore()
+    if (settings.background === 'dots') {
+      // grid in graph space, so it pans and zooms with the notes
+      let step = 32
+      while (step * scale < 14) step *= 2
+      const inv = t.inverse()
+      const tl = inv.transformPoint({ x: 0, y: 0 }), br = inv.transformPoint({ x: W, y: H })
+      ctx.fillStyle = settings.style === 'clean' ? pal.faint.replace(/[\d.]+\)$/, '0.28)') : 'rgba(255,255,255,0.09)'
+      const r = 1.1 / scale
+      for (let x = Math.floor(tl.x / step) * step; x < br.x; x += step)
+        for (let y = Math.floor(tl.y / step) * step; y < br.y; y += step) ctx.fillRect(x - r, y - r, 2 * r, 2 * r)
+    }
+  }
+
   const drawLabels = (ctx: CanvasRenderingContext2D, scale: number) => {
     const fontSize = 12 / scale
     ctx.font = `500 ${fontSize}px Inter, system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    const threshold = 0.3 + settings.textFade * 2
+    const zoomFade = Math.max(0, Math.min(1, (scale - threshold) / 0.5))
     const placed: [number, number, number, number][] = []
-    const priority = (n: GNode) =>
-      (n.id === hover ? 1e6 : 0) + (n.id === focus ? 1e5 : 0) + (lit?.has(n.id) ? 1e4 : 0) + n.degree
-    const nodes = [...data.nodes].sort((a, b) => priority(b) - priority(a))
-    for (const n of nodes) {
+    const priority = (n: GNode) => (n.id === hover ? 1e6 : 0) + (n.id === focus ? 1e5 : 0) + (lit?.has(n.id) ? 1e4 : 0) + n.degree
+    for (const n of [...data.nodes].sort((a, b) => priority(b) - priority(a))) {
       if (n.x === undefined || n.y === undefined) continue
       const important = n.id === hover || n.id === focus || (lit?.has(n.id) ?? false)
-      if (settings.labels === 'hover' && !important) continue
-      if (settings.labels === 'auto' && !important && scale < 0.9 && n.degree < 3) continue
-      if (lit && !lit.has(n.id) && settings.labels !== 'always') continue
-      const text = n.title.length > 28 ? n.title.slice(0, 27) + '…' : n.title
+      let a = 1
+      if (settings.labels === 'hover') a = important ? 1 : 0
+      else if (settings.labels === 'auto') a = important ? 1 : Math.max(zoomFade, n.degree >= 4 ? 0.85 : 0)
+      a *= alpha.current.get(n.id) ?? 1
+      if (lit && !lit.has(n.id)) a *= 0.6
+      if (a < 0.04) continue
+      const text = n.title.length > 30 ? n.title.slice(0, 29) + '…' : n.title
       const w = ctx.measureText(text).width
       const pad = 3 / scale
-      const x = n.x - w / 2 - pad, y = n.y + radius(n) + 3 / scale, h = fontSize + pad * 1.4
-      const overlaps = placed.some(([px, py, pw, ph]) => x < px + pw && x + w + 2 * pad > px && y < py + ph && y + h > py)
-      if (overlaps && !important) continue
+      const x = n.x - w / 2 - pad, y = n.y + radius(n) + 4 / scale, h = fontSize + pad * 1.3
+      if (placed.some(([px, py, pw, ph]) => x < px + pw && x + w + 2 * pad > px && y < py + ph && y + h > py) && !important) continue
       placed.push([x, y, w + 2 * pad, h])
-      ctx.globalAlpha = lit && !lit.has(n.id) ? 0.35 : 1
-      ctx.fillStyle = theme.labelBg
-      roundRect(ctx, x, y, w + 2 * pad, h, 3 / scale)
+      ctx.globalAlpha = a
+      ctx.fillStyle = pal.labelBg
+      ctx.beginPath()
+      ctx.roundRect(x, y, w + 2 * pad, h, 4 / scale)
       ctx.fill()
-      ctx.fillStyle = important ? theme.text : theme.label
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillText(text, n.x, y + pad * 0.7)
+      ctx.fillStyle = important ? pal.text : pal.label
+      ctx.fillText(text, n.x, y + pad * 0.65)
     }
     ctx.globalAlpha = 1
   }
 
+  const linkTouches = (l: GLink, id: number | null) => id !== null && (idOf(l.source) === id || idOf(l.target) === id)
+
   const focusTitle = focus !== undefined ? raw?.nodes.find((n) => n.id === focus)?.title : undefined
-  const visibleGroups = groups.filter((g) => raw?.nodes.some((n) => groupOf(n.path, settings.colorDepth) === g.name))
+  const legend = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const n of raw?.nodes ?? []) {
+      const c = classify(n.title, n.path)
+      if (!seen.has(c.group)) seen.set(c.group, c.color)
+    }
+    return [...seen.entries()]
+  }, [raw, classify])
+
+  const dark = settings.style !== 'clean'
 
   return (
-    <div className="graph" ref={box}>
+    <div className={`graph ${dark ? 'graph-dark' : ''}`} ref={box} style={{ background: pal.bg2 ?? pal.bg }}>
       <div className="graph-bar">
         <label className="graph-search">
           <Icon name="search" />
           <input placeholder="Im Graph suchen" value={query} onChange={(e) => setQuery(e.target.value)} />
+          {matches && <span className="graph-count">{matches.size}</span>}
         </label>
         {focusTitle && (
           <span className="graph-focus">
@@ -248,67 +358,35 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
           </span>
         )}
         <span className="spacer" />
-        <button className={`btn ghost ${panel ? 'on' : ''}`} onClick={() => setPanel((p) => !p)}>
-          <Icon name="sliders" /> Anzeige
-        </button>
+        <span className="graph-actions">
+          <button className="icon-btn" title="Zeitraffer: Notizen in der Reihenfolge ihrer Entstehung" onClick={animate} disabled={reveal !== null}>
+            <Icon name="play" />
+          </button>
+          <button className="icon-btn" title="Alles zeigen" onClick={() => fg.current?.zoomToFit(500, 90)}>
+            <Icon name="fit" />
+          </button>
+          <button className={`icon-btn ${panel ? 'on' : ''}`} title="Graph-Einstellungen" onClick={() => setPanel((p) => !p)}>
+            <Icon name="sliders" />
+          </button>
+        </span>
       </div>
 
       {panel && (
-        <div className="graph-panel">
-          <section>
-            <h5>Filter</h5>
-            <Toggle label="Verlinkungen" on={settings.links} set={(v) => set('links', v)} />
-            <Toggle label="Unterseiten" on={settings.subpages} set={(v) => set('subpages', v)} />
-            <Toggle label="Ähnlicher Inhalt" on={settings.semantic} set={(v) => set('semantic', v)} />
-            {settings.semantic && (
-              <Slider label="Mindest-Ähnlichkeit" value={settings.minSimilarity} min={0} max={0.95} step={0.05} fmt={(v) => `${Math.round(v * 100)}%`} set={(v) => set('minSimilarity', v)} />
-            )}
-            <Toggle label="Notizen ohne Verbindung" on={settings.orphans} set={(v) => set('orphans', v)} />
-          </section>
-          <section>
-            <h5>Darstellung</h5>
-            <Toggle label="Farben nach Ordner" on={settings.colorByFolder} set={(v) => set('colorByFolder', v)} />
-            {settings.colorByFolder && (
-              <label className="gp-row">
-                Ordner-Ebene
-                <select value={settings.colorDepth} onChange={(e) => set('colorDepth', Number(e.target.value) as 1 | 2)}>
-                  <option value={1}>oberste</option>
-                  <option value={2}>Unterordner</option>
-                </select>
-              </label>
-            )}
-            <Toggle label="Pfeile" on={settings.arrows} set={(v) => set('arrows', v)} />
-            <label className="gp-row">
-              Beschriftung
-              <select value={settings.labels} onChange={(e) => set('labels', e.target.value as Settings['labels'])}>
-                <option value="auto">automatisch</option>
-                <option value="always">immer</option>
-                <option value="hover">beim Zeigen</option>
-              </select>
-            </label>
-            <Slider label="Knotengröße" value={settings.nodeSize} min={0.5} max={2} step={0.1} fmt={(v) => `${v.toFixed(1)}×`} set={(v) => set('nodeSize', v)} />
-          </section>
-          <section>
-            <h5>Kräfte</h5>
-            <Slider label="Abstoßung" value={settings.repel} min={20} max={500} step={10} fmt={String} set={(v) => set('repel', v)} />
-            <Slider label="Linklänge" value={settings.distance} min={15} max={200} step={5} fmt={String} set={(v) => set('distance', v)} />
-          </section>
-          <button className="btn ghost" onClick={() => setSettings(DEFAULTS)}>Zurücksetzen</button>
-        </div>
+        <GraphPanel settings={settings} series={pal.series} set={set} replace={setSettings} onClose={() => setPanel(false)} />
       )}
 
-      {settings.colorByFolder && visibleGroups.length > 1 && (
+      {legend.length > 1 && (
         <div className="graph-legend">
-          {visibleGroups.map((g) => {
-            const off = settings.hiddenGroups.includes(g.name)
+          {legend.map(([name, color]) => {
+            const off = settings.hiddenGroups.includes(name)
             return (
               <button
-                key={g.name}
+                key={name}
                 className={off ? 'off' : ''}
                 title={off ? 'Einblenden' : 'Ausblenden'}
-                onClick={() => set('hiddenGroups', off ? settings.hiddenGroups.filter((x) => x !== g.name) : [...settings.hiddenGroups, g.name])}
+                onClick={() => set('hiddenGroups', off ? settings.hiddenGroups.filter((x) => x !== name) : [...settings.hiddenGroups, name])}
               >
-                <i style={{ background: g.color }} /> {g.name}
+                <i style={{ background: color, boxShadow: settings.glow > 0 ? `0 0 6px ${color}` : 'none' }} /> {name}
               </button>
             )
           })}
@@ -320,36 +398,42 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
         graphData={data}
         width={size.w}
         height={size.h}
-        backgroundColor={theme.bg}
+        backgroundColor={pal.bg2 ? 'rgba(0,0,0,0)' : pal.bg}
+        autoPauseRedraw={false}
         nodeId="id"
         nodeLabel={() => ''}
-        cooldownTicks={120}
+        cooldownTicks={reveal !== null ? 30 : 140}
+        d3VelocityDecay={0.32}
         onEngineStop={() => {
           if (fitted.current) return
           fitted.current = true
           fg.current?.zoomToFit(400, 90)
-          // few nodes would otherwise be blown up to fill the screen
           setTimeout(() => {
             const z = fg.current?.zoom() ?? 1
             if (z > 2.2) fg.current?.zoom(2.2, 300)
           }, 450)
         }}
+        onRenderFramePre={drawBackground}
         nodeCanvasObject={(n, ctx, scale) => {
           const r = radius(n)
-          const dim = lit !== null && !lit.has(n.id)
-          ctx.globalAlpha = dim ? 0.18 : 1
+          const e = emphasis(n.id)
+          const isHover = n.id === hover
+          const highlighted = isHover || n.id === focus || (matches?.has(n.id) && hover === null)
+          ctx.globalAlpha = e
+          if (settings.glow > 0) {
+            ctx.shadowColor = n.color
+            ctx.shadowBlur = (4 + 22 * settings.glow) * (isHover ? 1.6 : 1)
+          }
           ctx.beginPath()
-          ctx.arc(n.x!, n.y!, r, 0, Math.PI * 2)
-          ctx.fillStyle = settings.colorByFolder ? colorOf.get(n.group) ?? theme.neutral : theme.node
+          ctx.arc(n.x!, n.y!, r * (isHover ? 1.25 : 1), 0, Math.PI * 2)
+          ctx.fillStyle = n.color
           ctx.fill()
-          ctx.lineWidth = 1.5 / scale
-          ctx.strokeStyle = theme.bg
-          ctx.stroke()
-          if (n.id === hover || n.id === focus || (matches?.has(n.id) && hover === null)) {
-            ctx.lineWidth = 2 / scale
-            ctx.strokeStyle = theme.text
+          ctx.shadowBlur = 0
+          if (highlighted) {
+            ctx.lineWidth = 1.6 / scale
+            ctx.strokeStyle = pal.accent
             ctx.beginPath()
-            ctx.arc(n.x!, n.y!, r + 3 / scale, 0, Math.PI * 2)
+            ctx.arc(n.x!, n.y!, r * (isHover ? 1.25 : 1) + 3 / scale, 0, Math.PI * 2)
             ctx.stroke()
           }
           ctx.globalAlpha = 1
@@ -357,90 +441,55 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
         nodePointerAreaPaint={(n, color, ctx) => {
           ctx.fillStyle = color
           ctx.beginPath()
-          ctx.arc(n.x!, n.y!, radius(n) + 4, 0, Math.PI * 2)
+          ctx.arc(n.x!, n.y!, radius(n) + 5, 0, Math.PI * 2)
           ctx.fill()
         }}
         onRenderFramePost={drawLabels}
         linkColor={(l) => {
-          const on = lit === null || (lit.has(idOf(l.source)) && lit.has(idOf(l.target)))
-          const base = l.kind === 'semantic' ? theme.semantic : l.kind === 'child' ? theme.neutral : theme.link
-          return on ? base : theme.faint
+          const a = Math.min(alpha.current.get(idOf(l.source)) ?? 1, alpha.current.get(idOf(l.target)) ?? 1)
+          if (hover !== null && linkTouches(l, hover)) return pal.accent
+          const src = typeof l.source === 'object' ? l.source : null
+          const base =
+            l.kind === 'semantic' ? pal.semantic : l.kind === 'child' ? withAlpha(pal.neutral, 0.45) : pal.tintLinks && src ? withAlpha(src.color, 0.38) : pal.link
+          return a < 0.5 ? pal.faint : base
         }}
-        linkWidth={(l) => (l.kind === 'semantic' ? 0.6 + 2.4 * Math.max(0, l.weight - 0.3) : l.kind === 'child' ? 0.8 : 1.1)}
-        linkLineDash={(l) => (l.kind === 'semantic' ? [3, 3] : l.kind === 'child' ? [1, 2.5] : null)}
-        linkCurvature={0.08}
-        linkDirectionalArrowLength={(l) => (settings.arrows && l.kind === 'link' ? 4 : 0)}
+        linkWidth={(l) =>
+          settings.linkWidth *
+          (hover !== null && linkTouches(l, hover) ? 1.8 : l.kind === 'semantic' ? 0.6 + 2 * Math.max(0, l.weight - 0.3) : l.kind === 'child' ? 0.7 : 1)
+        }
+        linkLineDash={(l) => (l.kind === 'semantic' ? [2, 3] : l.kind === 'child' ? [1, 2.5] : null)}
+        linkCurvature={0.06}
+        linkDirectionalArrowLength={(l) => (settings.arrows && l.kind === 'link' ? 3.5 * settings.linkWidth : 0)}
         linkDirectionalArrowRelPos={1}
+        linkDirectionalArrowColor={() => pal.label}
+        linkDirectionalParticles={(l) => (settings.particles && linkTouches(l, hover) ? 3 : 0)}
+        linkDirectionalParticleWidth={2.4}
+        linkDirectionalParticleSpeed={0.008}
+        linkDirectionalParticleColor={() => pal.accent}
         onNodeHover={(n) => setHover(n ? n.id : null)}
         onNodeClick={(n, e) => (e.shiftKey || e.altKey ? onFocus(n.id) : onOpen(n.id))}
         onNodeRightClick={(n) => onFocus(n.id)}
+        onNodeDragEnd={(n) => {
+          // pin dragged notes where they were dropped, like Obsidian
+          ;(n as GNode & { fx?: number; fy?: number }).fx = n.x
+          ;(n as GNode & { fx?: number; fy?: number }).fy = n.y
+        }}
         onBackgroundClick={() => setQuery('')}
       />
-      <div className="graph-hint">Klick öffnet · Shift-Klick oder Rechtsklick zeigt die Umgebung</div>
+      {reveal !== null && <div className="graph-timelapse">{reveal} / {order.length} Notizen</div>}
+      <div className="graph-hint">Klick öffnet · Rechtsklick zeigt die Umgebung · Ziehen pinnt</div>
     </div>
   )
 }
 
-/** Folder a note belongs to for colouring: top level, or top level + one subfolder. */
-function groupOf(path: string, depth: 1 | 2 = 1) {
-  const parts = path.split('/').slice(0, -1)
-  return parts.length ? parts.slice(0, depth).join(' / ') : ROOT_GROUP
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.arcTo(x + w, y, x + w, y + h, r)
-  ctx.arcTo(x + w, y + h, x, y + h, r)
-  ctx.arcTo(x, y + h, x, y, r)
-  ctx.arcTo(x, y, x + w, y, r)
-  ctx.closePath()
-}
-
-function Toggle({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) {
-  return (
-    <label className="gp-row">
-      {label}
-      <input type="checkbox" className="switch" checked={on} onChange={(e) => set(e.target.checked)} />
-    </label>
-  )
-}
-
-function Slider(p: { label: string; value: number; min: number; max: number; step: number; fmt: (v: number) => string; set: (v: number) => void }) {
-  return (
-    <label className="gp-row col">
-      <span>
-        {p.label} <b>{p.fmt(p.value)}</b>
-      </span>
-      <input type="range" min={p.min} max={p.max} step={p.step} value={p.value} onChange={(e) => p.set(Number(e.target.value))} />
-    </label>
-  )
-}
-
-/** Graph colours follow the CSS theme (light/dark). */
-function useTheme() {
-  const read = () => {
-    const css = getComputedStyle(document.documentElement)
-    const v = (name: string) => css.getPropertyValue(name).trim()
-    return {
-      bg: v('--bg'),
-      text: v('--text'),
-      node: v('--text-2'),
-      neutral: v('--muted'),
-      link: v('--graph-link'),
-      faint: v('--graph-faint'),
-      semantic: v('--amber'),
-      label: v('--text-2'),
-      labelBg: v('--graph-label-bg'),
-      series: Array.from({ length: MAX_HUES }, (_, i) => v(`--series-${i + 1}`)),
-    }
-  }
-  const [theme, setTheme] = useState(read)
+/** Re-render when the app's light/dark theme changes. */
+function useCssTheme() {
+  const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const on = () => setTheme(read())
+    const on = () => setDark(mq.matches)
     mq.addEventListener('change', on)
     return () => mq.removeEventListener('change', on)
   }, [])
-  return theme
+  return dark
 }
