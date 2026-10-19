@@ -72,7 +72,37 @@ Gelernt wird mit dem FSRS-5-Algorithmus (wie im modernen Anki): Nochmal / Schwer
 
 **MCP-Server** – alles ist auch für KI-Assistenten (Claude & Co.) als Tool verfügbar, siehe unten.
 
-## Einrichtung
+## Mit Docker starten (am einfachsten)
+
+Voraussetzung: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/macOS) oder Docker Engine (Linux).
+
+```bash
+git clone https://github.com/moritzjh/Synapse.git
+cd Synapse
+docker compose up -d --build
+```
+
+Dann **http://localhost:8080** öffnen. Der erste Build dauert ein paar Minuten (Frontend, C++-Backend und
+das Embedding-Modell multilingual-e5-small werden ins Image gepackt); danach startet Synapse in Sekunden.
+
+- **Deine Daten** liegen im Ordner `data/` neben der `docker-compose.yml`: `synapse.db` und `vault/` mit
+  allen Notizen als `.md` – den Vault-Ordner kannst du direkt in Obsidian öffnen.
+- **Stoppen / Starten:** `docker compose stop` · `docker compose start` – der Container startet mit dem PC
+  automatisch mit (`restart: unless-stopped`), solange Docker läuft.
+- **Update:** `git pull && docker compose up -d --build`
+- **Kleineres Modell** (nur Englisch, Image ≈ 360 MB): in `docker-compose.yml` `MODEL: minilm` setzen.
+- **Linux:** `PUID`/`PGID` in `docker-compose.yml` auf die Ausgabe von `id -u`/`id -g` setzen, damit die
+  Dateien in `data/` dir gehören.
+- Der Port ist absichtlich nur an `127.0.0.1` gebunden – Synapse hat noch keinen Login und ist so nur
+  vom eigenen PC erreichbar.
+
+**MCP mit Docker:** per HTTP an `http://localhost:8080/mcp`, oder über stdio, z. B. für Claude Desktop:
+
+```json
+{ "mcpServers": { "synapse": { "command": "docker", "args": ["exec", "-i", "synapse", "synapse", "mcp"] } } }
+```
+
+## Einrichtung (ohne Docker)
 
 Voraussetzungen: CMake ≥ 3.20, ein C++20-Compiler, SQLite3-Header (`libsqlite3-dev` / `brew install sqlite`),
 Node.js ≥ 20.

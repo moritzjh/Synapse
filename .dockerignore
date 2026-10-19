@@ -1,0 +1,12 @@
+.git
+**/node_modules
+frontend/dist
+backend/build
+backend/build-dbg
+backend/third_party/onnxruntime
+backend/uploads
+models
+data
+vault
+*.db
+*.db-*

@@ -1,0 +1,16 @@
+services:
+  synapse:
+    build:
+      context: .
+      args:
+        MODEL: e5          # oder "minilm" (kleiner, nur Englisch)
+    image: synapse:latest
+    container_name: synapse
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # nur vom eigenen PC erreichbar (es gibt noch keinen Login)
+    volumes:
+      - ./data:/data            # synapse.db + vault/ (die .md-Dateien, z.B. in Obsidian öffnen)
+    environment:
+      PUID: "1000"              # Linux: Ausgabe von `id -u` / `id -g`, damit die Dateien dir gehören
+      PGID: "1000"
