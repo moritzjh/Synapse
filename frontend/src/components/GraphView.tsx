@@ -204,7 +204,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
   const litRef = useRef(lit)
   litRef.current = lit
 
-  const radius = (n: GNode) => (2.4 + Math.sqrt(n.degree) * 1.7) * settings.nodeSize
+  const radius = (n: GNode) => (3 + Math.sqrt(n.degree) * 1.45) * settings.nodeSize
 
   // ---- forces -----------------------------------------------------------------------------
 
@@ -284,18 +284,19 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
       while (step * scale < 14) step *= 2
       const inv = t.inverse()
       const tl = inv.transformPoint({ x: 0, y: 0 }), br = inv.transformPoint({ x: W, y: H })
-      ctx.fillStyle = settings.style === 'clean' ? pal.faint.replace(/[\d.]+\)$/, '0.28)') : 'rgba(255,255,255,0.09)'
+      ctx.fillStyle = settings.style === 'clean' ? pal.grid : 'rgba(255,255,255,0.09)'
       const r = 1.1 / scale
       for (let x = Math.floor(tl.x / step) * step; x < br.x; x += step)
         for (let y = Math.floor(tl.y / step) * step; y < br.y; y += step) ctx.fillRect(x - r, y - r, 2 * r, 2 * r)
     }
   }
 
+  // Labels: text with a soft halo in the background colour (no boxes), most important first,
+  // skipped where they would collide.
   const drawLabels = (ctx: CanvasRenderingContext2D, scale: number) => {
-    const fontSize = 12 / scale
-    ctx.font = `500 ${fontSize}px Inter, system-ui, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
+    ctx.lineJoin = 'round'
     const threshold = 0.3 + settings.textFade * 2
     const zoomFade = Math.max(0, Math.min(1, (scale - threshold) / 0.5))
     const placed: [number, number, number, number][] = []
@@ -303,25 +304,27 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
     for (const n of [...data.nodes].sort((a, b) => priority(b) - priority(a))) {
       if (n.x === undefined || n.y === undefined) continue
       const important = n.id === hover || n.id === focus || (lit?.has(n.id) ?? false)
+      const hub = n.degree >= 5
       let a = 1
       if (settings.labels === 'hover') a = important ? 1 : 0
-      else if (settings.labels === 'auto') a = important ? 1 : Math.max(zoomFade, n.degree >= 4 ? 0.85 : 0)
+      else if (settings.labels === 'auto') a = important ? 1 : Math.max(zoomFade, hub ? 0.9 : n.degree >= 3 ? zoomFade * 0.5 + 0.35 : 0)
       a *= alpha.current.get(n.id) ?? 1
-      if (lit && !lit.has(n.id)) a *= 0.6
+      if (lit && !lit.has(n.id)) a *= 0.5
       if (a < 0.04) continue
-      const text = n.title.length > 30 ? n.title.slice(0, 29) + '…' : n.title
+      const size = (hub || important ? 12.5 : 11) / scale
+      ctx.font = `${hub || important ? 600 : 500} ${size}px Inter, system-ui, sans-serif`
+      const text = n.title.length > 28 ? n.title.slice(0, 27) + '…' : n.title
       const w = ctx.measureText(text).width
-      const pad = 3 / scale
-      const x = n.x - w / 2 - pad, y = n.y + radius(n) + 4 / scale, h = fontSize + pad * 1.3
-      if (placed.some(([px, py, pw, ph]) => x < px + pw && x + w + 2 * pad > px && y < py + ph && y + h > py) && !important) continue
-      placed.push([x, y, w + 2 * pad, h])
+      const gapY = 5 / scale
+      const x = n.x - w / 2, y = n.y + radius(n) * (n.id === hover ? 1.25 : 1) + gapY, h = size * 1.2
+      if (placed.some(([px, py, pw, ph]) => x < px + pw && x + w > px && y < py + ph && y + h > py) && !important) continue
+      placed.push([x - 2 / scale, y, w + 4 / scale, h])
       ctx.globalAlpha = a
-      ctx.fillStyle = pal.labelBg
-      ctx.beginPath()
-      ctx.roundRect(x, y, w + 2 * pad, h, 4 / scale)
-      ctx.fill()
-      ctx.fillStyle = important ? pal.text : pal.label
-      ctx.fillText(text, n.x, y + pad * 0.65)
+      ctx.lineWidth = 4 / scale
+      ctx.strokeStyle = pal.labelHalo
+      ctx.strokeText(text, n.x, y)
+      ctx.fillStyle = important || hub ? pal.text : pal.label
+      ctx.fillText(text, n.x, y)
     }
     ctx.globalAlpha = 1
   }
@@ -419,21 +422,30 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
           const e = emphasis(n.id)
           const isHover = n.id === hover
           const highlighted = isHover || n.id === focus || (matches?.has(n.id) && hover === null)
+          const rr = r * (isHover ? 1.25 : 1)
           ctx.globalAlpha = e
+          // soft aura, a little stronger on hover
+          ctx.beginPath()
+          ctx.arc(n.x!, n.y!, rr + (isHover ? 7 : 3.5) / Math.max(scale, 0.6), 0, Math.PI * 2)
+          ctx.fillStyle = withAlpha(n.color, isHover ? 0.22 : 0.13)
+          ctx.fill()
           if (settings.glow > 0) {
             ctx.shadowColor = n.color
             ctx.shadowBlur = (4 + 22 * settings.glow) * (isHover ? 1.6 : 1)
           }
           ctx.beginPath()
-          ctx.arc(n.x!, n.y!, r * (isHover ? 1.25 : 1), 0, Math.PI * 2)
+          ctx.arc(n.x!, n.y!, rr, 0, Math.PI * 2)
           ctx.fillStyle = n.color
           ctx.fill()
           ctx.shadowBlur = 0
+          ctx.lineWidth = 1.2 / scale
+          ctx.strokeStyle = pal.labelHalo
+          ctx.stroke()
           if (highlighted) {
             ctx.lineWidth = 1.6 / scale
             ctx.strokeStyle = pal.accent
             ctx.beginPath()
-            ctx.arc(n.x!, n.y!, r * (isHover ? 1.25 : 1) + 3 / scale, 0, Math.PI * 2)
+            ctx.arc(n.x!, n.y!, rr + 3.5 / scale, 0, Math.PI * 2)
             ctx.stroke()
           }
           ctx.globalAlpha = 1
