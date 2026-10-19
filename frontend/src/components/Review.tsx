@@ -14,6 +14,10 @@ const RATINGS: { r: Rating; label: string; cls: string }[] = [
 /** "[[Titel|Alias]]" → "Alias", "[[Titel]]" → "Titel" for display on cards. */
 const clean = (s: string) => s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, t, a) => a ?? t)
 
+const maskStyle = (m: { x: number; y: number; w: number; h: number }) => ({
+  left: `${m.x * 100}%`, top: `${m.y * 100}%`, width: `${m.w * 100}%`, height: `${m.h * 100}%`,
+})
+
 function formatInterval(ms: number) {
   const min = ms / 60_000
   if (min < 60) return `${Math.max(1, Math.round(min))} Min`
@@ -29,7 +33,20 @@ function formatInterval(ms: number) {
 function partCount(card: Card) {
   if (card.kind === 'list') return card.data.items?.length ?? 0
   if (card.kind === 'cloze') return card.data.segments?.filter((s) => 'cloze' in s).length ?? 0
+  if (card.kind === 'occlusion') return card.data.masks?.length ?? 0
   return 1
+}
+
+/** Masks are revealed top-to-bottom, left-to-right (reading order). */
+const maskOrder = (card: Card) =>
+  [...(card.data.masks ?? [])].sort((a, b) => (Math.abs(a.y - b.y) > 0.04 ? a.y - b.y : a.x - b.x))
+
+const KIND_NAME: Record<Card['kind'], string> = {
+  basic: 'Frage',
+  reverse: 'Umgekehrt',
+  list: 'Liste',
+  cloze: 'Lückentext',
+  occlusion: 'Bild',
 }
 
 interface Props {
@@ -45,6 +62,7 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
   const [stats, setStats] = useState<ReviewStats | null>(null)
   const [revealed, setRevealed] = useState<Set<number>>(new Set())
   const [done, setDone] = useState(0)
+  const [ratings, setRatings] = useState<number[]>([])
 
   const load = useCallback(async () => {
     const [q, s] = await Promise.all([cardApi.queue(exam), cardApi.stats(exam)])
@@ -56,6 +74,11 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
   useEffect(() => {
     load()
   }, [load])
+
+  // Space reveals – make sure it doesn't also "click" a focused sidebar button.
+  useEffect(() => {
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+  }, [])
 
   const card = queue?.[0]
   const parts = card ? partCount(card) : 0
@@ -72,6 +95,7 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
       if (!card) return
       await cardApi.review(card.id, r)
       setDone((d) => d + 1)
+      setRatings((x) => [...x, r])
       setRevealed(new Set())
       const rest = queue!.slice(1)
       if (rest.length) {
@@ -121,79 +145,121 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
         <div className="progress"><div style={{ width: `${(done / Math.max(1, done + queue.length)) * 100}%` }} /></div>
 
         {!card ? (
-          <div className="empty-state" style={{ padding: '10vh 0' }}>
-            <p>Für jetzt ist alles gelernt{current ? ` für ${current.name}` : ''}.</p>
-            <p>
+          <div className="review-done">
+            {done > 0 ? (
+              <>
+                <div className="done-number">{done}</div>
+                <p>{done === 1 ? 'Karte' : 'Karten'} gelernt{current ? ` für ${current.name}` : ''}</p>
+                <div className="done-bars">
+                  {RATINGS.map(({ r, label, cls }) => {
+                    const n = ratings.filter((x) => x === r).length
+                    return (
+                      <div key={r} className={`done-bar ${cls}`}>
+                        <span style={{ height: `${(n / Math.max(1, done)) * 100}%` }} />
+                        <small>{label}</small>
+                        <b>{n}</b>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <p>Für jetzt ist alles gelernt{current ? ` für ${current.name}` : ''}.</p>
+            )}
+            <p className="muted small">
               Karten entstehen aus deinen Notizen: <code>Frage &gt;&gt; Antwort</code> · <code>Begriff :: Definition</code> ·{' '}
-              <code>{'{{Lücke}}'}</code> · <code>Frage &gt;&gt;</code> mit Liste darunter
+              <code>{'{{Lücke}}'}</code> · Liste unter <code>Frage &gt;&gt;</code> · abgedeckte Bilder
             </p>
           </div>
         ) : (
           <>
-            <button className="card-source" onClick={() => onOpenNote(card.note_id)}>
-              <Icon name="note" /> {card.note_title}
-              {card.state === 0 && ' · neu'}
-            </button>
+            <article className={`flashcard kind-${card.kind} ${allRevealed ? 'revealed' : ''}`} key={card.id}>
+              <header className="fc-head">
+                <button className="card-source" onClick={() => onOpenNote(card.note_id)}>
+                  <Icon name="note" /> {card.note_title}
+                </button>
+                <span className="fc-kind">{KIND_NAME[card.kind]}</span>
+                {card.state === 0 && <span className="fc-new">neu</span>}
+              </header>
 
-            {card.kind === 'cloze' ? (
-              <div className="card-front cloze-text">
-                {(() => {
-                  let gap = -1
-                  return card.data.segments!.map((s, i) => {
-                    if ('text' in s) return <span key={i}>{clean(s.text)}</span>
-                    const g = ++gap
-                    return revealed.has(g) ? (
-                      <span key={i} className="cloze revealed">{clean(s.cloze)}</span>
+              {card.kind === 'occlusion' ? (
+                <div className="fc-image">
+                  <img src={card.data.src} alt={card.front} />
+                  {maskOrder(card).map((m, i) =>
+                    revealed.has(i) ? (
+                      <div key={m.id} className="fc-mask open" style={maskStyle(m)}>
+                        {m.label && <span>{m.label}</span>}
+                      </div>
                     ) : (
-                      <button key={i} className="cloze hidden" onClick={() => reveal(g)} title="Aufdecken">
-                        {' '.repeat(Math.min(Math.max(s.cloze.length, 4), 24))}
+                      <button key={m.id} className={`fc-mask ${i === revealed.size ? 'next' : ''}`} style={maskStyle(m)} onClick={() => reveal(i)}>
+                        {i + 1}
                       </button>
-                    )
-                  })
-                })()}
-              </div>
-            ) : (
-              <div className="card-front">{clean(card.front)}</div>
-            )}
+                    ),
+                  )}
+                </div>
+              ) : card.kind === 'cloze' ? (
+                <div className="card-front cloze-text">
+                  {(() => {
+                    let gap = -1
+                    return card.data.segments!.map((s, i) => {
+                      if ('text' in s) return <span key={i}>{clean(s.text)}</span>
+                      const g = ++gap
+                      return revealed.has(g) ? (
+                        <span key={i} className="cloze revealed">{clean(s.cloze)}</span>
+                      ) : (
+                        <button key={i} className={`cloze hidden ${g === revealed.size ? 'next' : ''}`} onClick={() => reveal(g)} title="Aufdecken">
+                          {'\u00a0'.repeat(Math.min(Math.max(s.cloze.length, 4), 24))}
+                        </button>
+                      )
+                    })
+                  })()}
+                </div>
+              ) : (
+                <div className="card-front">{clean(card.front)}</div>
+              )}
 
-            {(card.kind === 'basic' || card.kind === 'reverse') && allRevealed && (
-              <div className="card-back">{clean(card.data.back ?? '')}</div>
-            )}
+              {(card.kind === 'basic' || card.kind === 'reverse') && (
+                <div className={`card-back ${allRevealed ? 'shown' : ''}`}>{allRevealed ? clean(card.data.back ?? '') : ''}</div>
+              )}
 
-            {card.kind === 'list' && (
-              <ol className="card-items">
-                {card.data.items!.map((item, i) =>
-                  revealed.has(i) ? (
-                    <li key={i} className="revealed">{clean(item)}</li>
-                  ) : (
-                    <li key={i}>
-                      <button className="cover" onClick={() => reveal(i)}>aufdecken</button>
-                    </li>
-                  ),
-                )}
-              </ol>
-            )}
+              {card.kind === 'list' && (
+                <ol className="card-items">
+                  {card.data.items!.map((item, i) =>
+                    revealed.has(i) ? (
+                      <li key={i} className="revealed">{clean(item)}</li>
+                    ) : (
+                      <li key={i}>
+                        <button className={`cover ${i === revealed.size ? 'next' : ''}`} onClick={() => reveal(i)} />
+                      </li>
+                    ),
+                  )}
+                </ol>
+              )}
+            </article>
 
             <div className="review-actions">
               {!allRevealed ? (
                 <>
-                  <button className="btn primary" onClick={revealNext}>
-                    {parts > 1 ? `Nächster Punkt (${revealed.size}/${parts})` : 'Antwort zeigen'}
+                  <button className="btn primary big" onClick={revealNext}>
+                    {parts > 1 ? `Aufdecken ${revealed.size + 1}/${parts}` : 'Antwort zeigen'}
                     <kbd>Leertaste</kbd>
                   </button>
                   {parts > 1 && (
                     <button className="btn ghost" onClick={() => setRevealed(new Set(Array.from({ length: parts }, (_, i) => i)))}>
-                      Alle
+                      Alle aufdecken
                     </button>
                   )}
                 </>
               ) : (
-                RATINGS.map(({ r, label, cls }) => (
-                  <button key={r} className={`rate ${cls}`} onClick={() => rate(r)}>
-                    <span>{label}</span>
-                    <small>{card.intervals ? formatInterval(card.intervals[String(r) as '1']) : ''}</small>
-                  </button>
-                ))
+                <div className="rates">
+                  {RATINGS.map(({ r, label, cls }) => (
+                    <button key={r} className={`rate ${cls}`} onClick={() => rate(r)}>
+                      <span>{label}</span>
+                      <small>{card.intervals ? formatInterval(card.intervals[String(r) as '1']) : ''}</small>
+                      <kbd>{r}</kbd>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </>

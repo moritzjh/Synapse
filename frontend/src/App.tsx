@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, cardApi, examApi, semanticApi, type Exam, type NoteSummary, type Status } from './api'
+import { api, cardApi, examApi, semanticApi, type Exam, type Status, type Tree } from './api'
 import Sidebar from './components/Sidebar'
 import NotePage from './components/Editor'
 import GraphView from './components/GraphView'
@@ -8,13 +8,14 @@ import Exams from './components/Exams'
 
 export type View =
   | { kind: 'note'; id: number }
-  | { kind: 'graph' }
+  | { kind: 'graph'; focus?: number }
   | { kind: 'review'; exam?: number }
   | { kind: 'exams' }
   | { kind: 'home' }
 
 export default function App() {
-  const [notes, setNotes] = useState<NoteSummary[]>([])
+  const [tree, setTree] = useState<Tree>({ folders: [], notes: [] })
+  const notes = tree.notes
   const [exams, setExams] = useState<Exam[]>([])
   const [view, setView] = useState<View>({ kind: 'home' })
   const [due, setDue] = useState(0)
@@ -29,7 +30,7 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      setNotes(await api.listNotes())
+      setTree(await api.tree())
       setError(null)
       refreshMeta()
     } catch (e) {
@@ -46,10 +47,11 @@ export default function App() {
 
   const openNote = (id: number) => setView({ kind: 'note', id })
 
-  const createNote = async (title = '') => {
-    const note = await api.createNote(title || 'Ohne Titel')
+  const createNote = async (title = '', where: { folder?: string; parentId?: number } = {}) => {
+    const note = await api.createNote(title || 'Ohne Titel', '', where)
     await refresh()
     openNote(note.id)
+    return note
   }
 
   const openByTitle = async (title: string) => {
@@ -66,22 +68,32 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar notes={notes} view={view} due={due} status={status} onNavigate={setView} onCreate={() => createNote()} />
+      <Sidebar
+        tree={tree}
+        view={view}
+        due={due}
+        status={status}
+        onNavigate={setView}
+        onCreateNote={(where) => createNote('', where)}
+        onChanged={refresh}
+      />
       <main className="main">
         {error && <div className="error-bar">{error}</div>}
         {view.kind === 'note' ? (
           <NotePage
             key={view.id}
             noteId={view.id}
-            titles={notes.map((n) => n.title)}
+            notes={notes}
             exams={exams.filter((e) => e.notes.some((n) => n.id === view.id))}
             onSaved={refresh}
             onOpenLink={openByTitle}
             onOpenNote={openNote}
             onDelete={deleteNote}
+            onCreateSubpage={(title) => api.createNote(title, '', { parentId: view.id }).then(async (n) => (await refresh(), n))}
+            onLocalGraph={() => setView({ kind: 'graph', focus: view.id })}
           />
         ) : view.kind === 'graph' ? (
-          <GraphView onOpen={openNote} />
+          <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} />
         ) : view.kind === 'review' ? (
           <Review key={view.exam ?? 0} exam={view.exam} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
         ) : view.kind === 'exams' ? (
