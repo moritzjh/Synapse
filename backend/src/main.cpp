@@ -1,5 +1,6 @@
 #include <httplib.h>
 
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -77,6 +78,14 @@ int main(int argc, char** argv) {
   if (!args.empty() && args[0] == "mcp") {
     return run_mcp_stdio_bridge(args.size() > 1 ? args[1] : "http://127.0.0.1:" + std::to_string(port));
   }
+
+  // SIGINT/SIGTERM (Ctrl+C, `docker stop`) are handled by a dedicated thread so the
+  // server shuts down cleanly and the database is closed properly.
+  sigset_t stop_signals;
+  sigemptyset(&stop_signals);
+  sigaddset(&stop_signals, SIGINT);
+  sigaddset(&stop_signals, SIGTERM);
+  pthread_sigmask(SIG_BLOCK, &stop_signals, nullptr);
 
   std::string db_path = !args.empty() ? args[0] : env("SYNAPSE_DB", "synapse.db");
   fs::path vault_dir = env("SYNAPSE_VAULT", "vault");
@@ -219,6 +228,12 @@ int main(int argc, char** argv) {
 
   std::string host = env("SYNAPSE_HOST", "127.0.0.1");
   std::cout << "synapse on http://" << host << ":" << port << "  (db " << db_path << ", MCP at /mcp)" << std::endl;
+  std::thread([&] {
+    int sig = 0;
+    sigwait(&stop_signals, &sig);
+    std::cout << "shutting down" << std::endl;
+    srv.stop();
+  }).detach();
   if (!srv.listen(host, port)) {
     std::cerr << "failed to bind " << host << ":" << port << "\n";
     return 1;
