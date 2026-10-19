@@ -756,8 +756,8 @@ kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--borde
 /* =====================================================================
    v4: neutral card syntax, graph panel, study mode
    ===================================================================== */
-:root { --bg-card: #ffffff; --ink-soft: rgba(55, 53, 47, 0.08); --graph-semantic: rgba(55, 53, 47, 0.16); }
-@media (prefers-color-scheme: dark) { :root { --bg-card: #202020; --ink-soft: rgba(255, 255, 255, 0.08); --graph-semantic: rgba(255, 255, 255, 0.13); } }
+:root { --bg-card: #ffffff; --ink-soft: rgba(55, 53, 47, 0.08); --graph-semantic: rgba(55, 53, 47, 0.16); --graph-grid: rgba(55, 53, 47, 0.13); --border-strong: rgba(55, 53, 47, 0.24); }
+@media (prefers-color-scheme: dark) { :root { --bg-card: #202020; --ink-soft: rgba(255, 255, 255, 0.08); --graph-semantic: rgba(255, 255, 255, 0.13); --graph-grid: rgba(255, 255, 255, 0.08); --border-strong: rgba(255, 255, 255, 0.22); } }
 
 /* ---- card syntax in the editor: quiet, no colour ---- */
 .card-line::before { border: 1.5px solid var(--muted); opacity: 0.55; width: 9px; height: 7px; top: 0.6em; left: -20px; }
@@ -1009,3 +1009,42 @@ button.gap.next { box-shadow: 0 0 0 3px var(--accent-soft); }
 .face.front { backface-visibility: visible; -webkit-backface-visibility: visible; transition: opacity 0.2s 0.15s; }
 .fc.is-revealed .face.front { opacity: 0; transition: opacity 0.12s; }
 .face { -webkit-font-smoothing: antialiased; }
+
+/* covered parts: light dashed placeholders instead of solid bars */
+button.gap {
+  position: relative; background: var(--bg-subtle); border: 1.5px dashed var(--border-strong); color: transparent;
+  padding: 0 8px; transition: border-color 0.15s, background 0.15s;
+}
+button.gap::after {
+  content: '?'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted);
+  font-size: 0.62em; font-weight: 600;
+}
+button.gap:hover { opacity: 1; border-color: var(--text-2); background: var(--bg-hover); }
+button.gap.next { box-shadow: none; border-color: var(--accent); background: var(--accent-soft); }
+button.gap.next::after { color: var(--accent); }
+.fc-cover {
+  position: relative; background: var(--bg-subtle); border: 1.5px dashed var(--border-strong); animation: none;
+}
+.fc-cover::after { content: '?'; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; font-weight: 600; }
+.fc-cover:hover { border-color: var(--text-2); }
+.fc-list li.next .fc-cover { box-shadow: none; border-color: var(--accent); background: var(--accent-soft); }
+.fc-list li.next .fc-cover::after { color: var(--accent); }
+.fc .fc-mask {
+  background: rgba(255, 255, 255, 0.62); backdrop-filter: blur(9px) saturate(0.7); -webkit-backdrop-filter: blur(9px) saturate(0.7);
+  border: 1.5px solid rgba(255, 255, 255, 0.9); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); color: var(--text-2);
+  border-radius: 8px; font-size: 12px; font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+  .fc .fc-mask { background: rgba(40, 40, 40, 0.6); border-color: rgba(255, 255, 255, 0.18); }
+}
+.fc .fc-mask:not(.open):hover { filter: none; background: rgba(255, 255, 255, 0.75); }
+.fc .fc-mask.next { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(0, 0, 0, 0.12); color: var(--accent); }
+.fc .fc-mask.open { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: 1.5px solid var(--accent); }
+/* image masks must hide what's underneath: opaque, same dashed style as gaps */
+.fc .fc-mask {
+  background: var(--bg-subtle); backdrop-filter: none; -webkit-backdrop-filter: none;
+  border: 1.5px dashed var(--border-strong); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); color: var(--muted);
+}
+@media (prefers-color-scheme: dark) { .fc .fc-mask { background: var(--bg-subtle); border-color: var(--border-strong); } }
+.fc .fc-mask:not(.open):hover { background: var(--bg-subtle); border-color: var(--text-2); }
+.fc .fc-mask.next { background: color-mix(in srgb, var(--accent) 10%, var(--bg-subtle)); border-color: var(--accent); box-shadow: none; color: var(--accent); }
