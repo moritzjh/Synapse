@@ -4,10 +4,15 @@ import Suggestion from '@tiptap/suggestion'
 import { menuRenderer, type MenuItem } from './SuggestionMenu'
 import { pickImages } from './upload'
 import { EXAMPLE_DIAGRAM } from './Mermaid'
+import { emptyDatabase, taskTracker } from './database/model'
+
+export interface SlashOptions {
+  createSubpage: (title: string) => Promise<{ id: number; title: string }>
+}
 
 interface SlashItem extends MenuItem {
   keywords: string
-  run: (editor: Editor, range: Range) => void
+  run: (editor: Editor, range: Range, opts: SlashOptions) => void
 }
 
 const SLASH_ITEMS: SlashItem[] = [
@@ -29,9 +34,38 @@ const SLASH_ITEMS: SlashItem[] = [
     title: 'Diagramm', icon: '◇', keywords: 'diagram mermaid grafik chart flowchart',
     run: (e, r) => e.chain().focus().deleteRange(r).insertContent([{ type: 'mermaid', attrs: { code: EXAMPLE_DIAGRAM } }, { type: 'paragraph' }]).run(),
   },
+  {
+    title: 'Unterseite', icon: '❐', hint: 'neue Seite darin', keywords: 'page subpage seite unterseite',
+    run: async (e, r, o) => {
+      e.chain().focus().deleteRange(r).run()
+      const title = prompt('Titel der Unterseite', 'Neue Seite')
+      if (!title) return
+      const note = await o.createSubpage(title)
+      e.chain().focus().insertContent([{ type: 'pageLink', attrs: { noteId: note.id, title: note.title } }, { type: 'paragraph' }]).run()
+    },
+  },
+  {
+    title: 'Datenbank', icon: '▤', hint: 'Tabelle mit Eigenschaften', keywords: 'database datenbank tabelle table notion',
+    run: (e, r) => e.chain().focus().deleteRange(r).insertContent([{ type: 'database', attrs: emptyDatabase() }, { type: 'paragraph' }]).run(),
+  },
+  {
+    title: 'Task-Tracker', icon: '☑', hint: 'Status, Board, Diagramm', keywords: 'task tracker aufgaben todo kanban board',
+    run: (e, r) => e.chain().focus().deleteRange(r).insertContent([{ type: 'database', attrs: taskTracker() }, { type: 'paragraph' }]).run(),
+  },
+  {
+    title: 'Callout', icon: '✦', hint: 'hervorgehobener Kasten', keywords: 'callout hinweis box tipp info warnung',
+    run: (e, r) =>
+      e.chain().focus().deleteRange(r)
+        .insertContent({ type: 'callout', attrs: { kind: 'tip' }, content: [{ type: 'paragraph' }] })
+        .run(),
+  },
+  {
+    title: 'Aufklappbar', icon: '▸', hint: 'Toggle', keywords: 'toggle details aufklappen collapse',
+    run: (e, r) => e.chain().focus().deleteRange(r).setDetails().run(),
+  },
   { title: 'Trennlinie', icon: '—', keywords: 'divider hr line', run: (e, r) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
   {
-    title: 'Karteikarte', icon: '⇄', hint: 'Frage >> Antwort', keywords: 'flashcard karte card anki',
+    title: 'Karteikarte', icon: '→', hint: 'Frage >> Antwort', keywords: 'flashcard karte card anki',
     run: (e, r) => e.chain().focus().deleteRange(r).insertContent('Frage >> Antwort').run(),
   },
   {
@@ -52,8 +86,11 @@ const SLASH_ITEMS: SlashItem[] = [
 ]
 
 /** Notion-style "/" command menu. */
-export const SlashCommands = Extension.create({
+export const SlashCommands = Extension.create<SlashOptions>({
   name: 'slashCommands',
+  addOptions() {
+    return { createSubpage: async () => ({ id: 0, title: '' }) }
+  },
   addProseMirrorPlugins() {
     return [
       Suggestion<SlashItem, SlashItem>({
@@ -62,9 +99,17 @@ export const SlashCommands = Extension.create({
         char: '/',
         items: ({ query }) => {
           const q = query.toLowerCase()
-          return SLASH_ITEMS.filter((i) => i.title.toLowerCase().includes(q) || i.keywords.includes(q))
+          // title prefix > title substring > keyword
+          const rank = (i: SlashItem) => {
+            const t = i.title.toLowerCase()
+            return t.startsWith(q) ? 0 : t.includes(q) ? 1 : i.keywords.includes(q) ? 2 : 9
+          }
+          return SLASH_ITEMS.map((item, idx) => ({ item, idx, r: rank(item) }))
+            .filter((x) => x.r < 9)
+            .sort((a, b) => a.r - b.r || a.idx - b.idx)
+            .map((x) => x.item)
         },
-        command: ({ editor, range, props }) => props.run(editor, range),
+        command: ({ editor, range, props }) => props.run(editor, range, this.options),
         render: menuRenderer<SlashItem>('Kein Befehl'),
       }),
     ]

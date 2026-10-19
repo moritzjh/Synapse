@@ -3,78 +3,67 @@ import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/r
 import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import { TableKit } from '@tiptap/extension-table'
-import Image from '@tiptap/extension-image'
 import Highlight from '@tiptap/extension-highlight'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { Placeholder } from '@tiptap/extensions'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
+import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import { Mermaid } from './Mermaid'
+import { OcclusionImage } from './OcclusionImage'
+import { Callout, PageLink } from './blocks'
+import { Database } from './database/Database'
+import type { NoteSummary } from '../api'
 import { SyntaxHighlight } from './syntax'
 import { SlashCommands, WikilinkSuggest } from './commands'
 import { insertImages } from './upload'
+import type { Doc } from './doc'
 
 const lowlight = createLowlight(common)
 
-export type Doc = Record<string, unknown>
-
-/** Accepts stored content (TipTap JSON or legacy plain text) and returns a document. */
-export function toDoc(content: string): Doc {
-  if (content.startsWith('{')) {
-    try {
-      const doc = JSON.parse(content)
-      if (doc?.type === 'doc') return doc
-    } catch {
-      /* fall through: treat as text */
-    }
-  }
-  const blocks: Doc[] = []
-  let list: Doc[] | null = null
-  for (const line of content.split('\n')) {
-    const m = line.trim().match(/^[-*] (.*)$/)
-    const para = (t: string) => ({ type: 'paragraph', content: t ? [{ type: 'text', text: t }] : [] })
-    if (m) {
-      if (!list) blocks.push({ type: 'bulletList', content: (list = []) })
-      list.push({ type: 'listItem', content: [para(m[1])] })
-    } else {
-      list = null
-      blocks.push(para(line))
-    }
-  }
-  return { type: 'doc', content: blocks }
-}
+export { toDoc } from './doc'
+export type { Doc } from './doc'
 
 interface Props {
   initial: Doc
   onChange: (doc: Doc) => void
   onOpenLink: (title: string) => void
-  getTitles: () => string[]
+  onOpenNote: (id: number) => void
+  onCreateSubpage: (title: string) => Promise<{ id: number; title: string }>
+  getNotes: () => NoteSummary[]
 }
 
-export default function RichEditor({ initial, onChange, onOpenLink, getTitles }: Props) {
-  // Extensions are created once; route callbacks through refs so they stay current.
-  const cb = useRef({ onChange, onOpenLink, getTitles })
-  cb.current = { onChange, onOpenLink, getTitles }
+export default function RichEditor(props: Props) {
+  // Extensions are created once; route callbacks through a ref so they stay current.
+  const cb = useRef(props)
+  cb.current = props
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false, link: { openOnClick: false, autolink: true } }),
       TableKit.configure({ table: { resizable: true } }),
-      Image.configure({ allowBase64: false }),
+      OcclusionImage.configure({ allowBase64: false }),
       Highlight,
       TaskList,
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight, defaultLanguage: 'plaintext' }),
       Mermaid,
+      Callout,
+      Details.configure({ persist: true, HTMLAttributes: { class: 'toggle' } }),
+      DetailsSummary,
+      DetailsContent,
+      Database,
+      PageLink.configure({ getNotes: () => cb.current.getNotes(), onOpenNote: (id) => cb.current.onOpenNote(id) }),
       Placeholder.configure({
+        includeChildren: true,
         placeholder: ({ node }) =>
-          node.type.name === 'heading' ? 'Überschrift' : "Schreibe, oder tippe / für Blöcke",
+          node.type.name === 'heading' ? 'Überschrift' : node.type.name === 'detailsSummary' ? 'Titel' : 'Schreibe, oder tippe / für Blöcke',
       }),
-      SyntaxHighlight.configure({ onOpenLink: (t) => cb.current.onOpenLink(t) }),
-      SlashCommands,
-      WikilinkSuggest.configure({ getTitles: () => cb.current.getTitles() }),
+      SyntaxHighlight.configure({ onOpenLink: (t) => cb.current.onOpenLink(t), getNotes: () => cb.current.getNotes() }),
+      SlashCommands.configure({ createSubpage: (t) => cb.current.onCreateSubpage(t) }),
+      WikilinkSuggest.configure({ getTitles: () => cb.current.getNotes().map((n) => n.title) }),
     ],
-    content: initial,
+    content: props.initial,
     editorProps: {
       handlePaste: (_view, event) => {
         const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
@@ -124,6 +113,15 @@ function FormatMenu({ editor }: { editor: Editor }) {
     const { from, to } = editor.state.selection
     c().insertContentAt({ from, to }, `{{${editor.state.doc.textBetween(from, to)}}}`).run()
   }
+  // "Frage Antwort" with "Antwort" selected → "Frage >> Antwort"
+  const toCard = () => {
+    const { from, to, $from } = editor.state.selection
+    const start = $from.start()
+    const before = editor.state.doc.textBetween(start, from)
+    if (/ (>>|::) /.test(editor.state.doc.textBetween(start, $from.end()))) return
+    if (before.trim()) c().insertContentAt({ from: from, to: from }, before.endsWith(' ') ? '>> ' : ' >> ').run()
+    else c().insertContentAt({ from: to, to }, ' >> ').run()
+  }
   const link = () => {
     const prev = editor.getAttributes('link').href as string | undefined
     const href = prompt('Link-Adresse', prev ?? 'https://')
@@ -151,6 +149,7 @@ function FormatMenu({ editor }: { editor: Editor }) {
         <Btn on={s.h2} title="Überschrift" run={() => c().toggleHeading({ level: 2 }).run()}>H</Btn>
         <span className="sep" />
         <Btn title="Als Lücke abdecken {{ }}" run={cloze}>Lücke</Btn>
+        <Btn title="Zeile zur Karteikarte machen: Auswahl wird zur Antwort" run={toCard}>Karte</Btn>
       </div>
     </BubbleMenu>
   )

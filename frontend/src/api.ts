@@ -2,6 +2,13 @@ export interface NoteSummary {
   id: number
   title: string
   updated_at: number
+  /** Vault-relative Markdown file, e.g. "Uni/Bio/Zelle.md". */
+  path: string
+}
+
+export interface Tree {
+  folders: string[]
+  notes: NoteSummary[]
 }
 
 export interface Note extends NoteSummary {
@@ -39,8 +46,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listNotes: () => request<NoteSummary[]>('/notes'),
   getNote: (id: number) => request<Note>(`/notes/${id}`),
-  createNote: (title: string, content = '') =>
-    request<Note>('/notes', { method: 'POST', body: JSON.stringify({ title, content }) }),
+  createNote: (title: string, content = '', where: { folder?: string; parentId?: number } = {}) =>
+    request<Note>('/notes', {
+      method: 'POST',
+      body: JSON.stringify({ title, content, folder: where.folder, parent_id: where.parentId }),
+    }),
+  getMarkdown: (id: number) => request<Note & { markdown: string }>(`/notes/${id}?format=markdown`),
+  updateMarkdown: (id: number, title: string, markdown: string) =>
+    request<Note>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ title, markdown }) }),
+  moveNote: (id: number, folder: string) =>
+    request<NoteSummary>(`/notes/${id}/move`, { method: 'PUT', body: JSON.stringify({ folder }) }),
+  tree: () => request<Tree>('/tree'),
+  createFolder: (path: string) => request<{ path: string }>('/folders', { method: 'POST', body: JSON.stringify({ path }) }),
+  renameFolder: (from: string, to: string) =>
+    request<{ path: string }>('/folders', { method: 'PUT', body: JSON.stringify({ from, to }) }),
+  deleteFolder: (path: string) => request<void>(`/folders?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   updateNote: (id: number, title: string, content: string) =>
     request<Note>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ title, content }) }),
   deleteNote: (id: number) => request<void>(`/notes/${id}`, { method: 'DELETE' }),
@@ -67,13 +87,23 @@ export interface Neighbor {
 
 export type ClozeSegment = { text: string } | { cloze: string }
 
+/** A covered region of an image, in fractions of the image size. */
+export interface Mask {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  label?: string
+}
+
 export interface Card {
   id: number
   note_id: number
   note_title: string
-  kind: 'basic' | 'reverse' | 'list' | 'cloze'
+  kind: 'basic' | 'reverse' | 'list' | 'cloze' | 'occlusion'
   front: string
-  data: { back?: string; items?: string[]; segments?: ClozeSegment[] }
+  data: { back?: string; items?: string[]; segments?: ClozeSegment[]; src?: string; masks?: Mask[] }
   state: 0 | 1 | 2 | 3
   due: number
   reps: number

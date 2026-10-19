@@ -8,18 +8,37 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 
 ## Features
 
+**Ordner & Unterseiten**
+- Ordner und Unterordner in der Seitenleiste (Drag & Drop, Rechtsklick-Menü, Umbenennen, Löschen → `.trash`)
+- Unterseiten wie in Notion: `Zelle.md` + Ordner `Zelle/` (Obsidian-Folder-Note-Konvention), Breadcrumbs über der Seite
+- `/Unterseite` legt eine Kindseite an und fügt einen Seiten-Block ein
+
 **Notizen (Notion-Stil)**
 - Fett, kursiv, unterstrichen, durchgestrichen, Markieren, Inline-Code, Überschriften
 - Listen, To-dos, Zitate, Trennlinien, Tabellen (Zeilen/Spalten hinzufügen, Breite ziehen)
 - Codeblöcke mit Syntax-Highlighting
 - Bilder: Button, Einfügen aus der Zwischenablage oder Drag & Drop (Upload ins Backend)
 - Diagramme/Grafiken mit [Mermaid](https://mermaid.js.org) (Flowchart, Sequenz, Mindmap, Pie, Gantt …)
+- Callouts (`> [!tip]` in Obsidian) und aufklappbare Toggles
+- **Datenbanken** (`/Datenbank`, `/Task-Tracker`): Eigenschaften vom Typ Text, Zahl, Auswahl, Mehrfachauswahl,
+  Status, Datum, Checkbox, Link und **Formel**; Ansichten **Tabelle**, **Board** (Kanban, Drag & Drop) und
+  **Diagramm** (Balken, Linie, Ring); Filter, Sortierung, Summenzeile
+- Formeln wie in Notion: `prop("Preis") * prop("Menge")`, `if(prop("Status") == "Erledigt", "✓", dateBetween(prop("Fällig"), today(), "days"))`
+  – Operatoren `+ - * / % == != < > and or not`, Funktionen u. a. `if concat length contains round min max sum now today dateAdd dateBetween formatDate empty`
 - `/` öffnet das Befehlsmenü, `[[` vervollständigt Links zu anderen Notizen
+- Formatierung über ein Menü, das bei Textauswahl erscheint (inkl. „Lücke“ und „Karte“)
+- **Live-Preview** wie in Obsidian: `[[…]]`, `>>`, `::` und `{{…}}` werden nur angezeigt, solange der Cursor darin steht;
+  sonst Link-Text, Karten-Pille bzw. markierte Lücke. Links öffnen per Klick, Vorschau beim Darüberfahren,
+  nicht existierende Ziele sind gestrichelt
+- **Markdown-Quelltext** (`</>` oben rechts): die rohe `.md`-Datei direkt bearbeiten
 
 **Verknüpfung**
 - `[[Notiz]]`-Links + Backlinks, Volltextsuche (FTS5, BM25)
 - Jede Notiz wird lokal eingebettet (Embedding); per HNSW-Index werden ähnliche Notizen gefunden und als
   gestrichelte Kanten in den Graphen eingetragen – ohne dass du etwas verlinken musst
+- **Graph**: Farben nach Ordner (validierte, farbenblind-taugliche Palette), Beschriftungen ohne Überlappung,
+  Hover hebt Nachbarn hervor, Suche, Filter (Links / Unterseiten / Ähnlichkeit mit Schwellwert / Waisen / Ordner
+  per Legende), **lokaler Graph** um eine Notiz mit 1–4 Schritten, einstellbare Kräfte und Knotengröße
 - „Ähnliche Notizen“-Leiste neben dem Editor, semantische Suche (`/api/semantic-search`)
 
 **Karteikarten (RemNote-Stil)** – entstehen direkt aus dem Notiztext:
@@ -30,6 +49,7 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 | `Begriff :: Definition`              | zwei Karten (vorwärts + rückwärts)                     |
 | `Frage >>` + Aufzählung darunter     | Listen-Karte: Punkte werden **einzeln aufgedeckt**     |
 | `Die {{Mitochondrien}} sind …`       | Lückentext: jede Lücke ist **abgedeckt** und einzeln aufdeckbar |
+| Bild → „Abdecken“, Rechtecke ziehen  | **Bild-Abdeckung**: Bereiche werden schrittweise aufgedeckt (optional mit Antwort-Text) |
 
 Gelernt wird mit dem FSRS-5-Algorithmus (wie im modernen Anki): Nochmal / Schwer / Gut / Einfach, Tasten
 `Leertaste` (aufdecken) und `1`–`4`. 20 neue Karten pro Tag.
@@ -91,6 +111,18 @@ das Frontend selbst aus.
 `synapse.json` im Modellordner: `prefix`/`query_prefix` (für e5: `"passage: "`/`"query: "`),
 `max_tokens`, `link_threshold` (ab welcher Kosinus-Ähnlichkeit eine Kante entsteht).
 
+## Markdown-Format der Spezialblöcke
+
+Alles bleibt in Obsidian lesbar; Synapse-Daten, die Markdown nicht abbilden kann, stehen in HTML-Kommentaren
+(in Obsidians Leseansicht unsichtbar):
+
+| Block            | In der `.md`-Datei                                                     |
+|------------------|------------------------------------------------------------------------|
+| Callout / Toggle | `> [!tip]` / `> [!toggle]- Titel`                                     |
+| Unterseite       | `[[Titel]]`                                                            |
+| Datenbank        | `<!-- synapse-db {…} -->` + lesbare Tabelle (Änderungen gehen über Synapse oder MCP) |
+| Bild-Abdeckung   | `![alt](attachments/…)` + `<!-- synapse-occlusion […] -->`              |
+
 ## MCP-Server
 
 Der Backend-Prozess spricht das [Model Context Protocol](https://modelcontextprotocol.io) – über HTTP unter
@@ -118,6 +150,8 @@ claude mcp add --transport http synapse http://127.0.0.1:8080/mcp
 | `create_note`   | Notiz aus Markdown anlegen (inkl. Karteikarten-Syntax)                 |
 | `update_note`   | ersetzen, anhängen, umbenennen                                         |
 | `delete_note`   | löschen (Datei → `.trash`)                                             |
+| `list_tree` / `create_folder` / `move_note` | Ordner und Hierarchie                       |
+| `get_databases` / `upsert_database_row` | Datenbanken lesen, Zeilen anlegen/ändern (z. B. Aufgaben) |
 | `get_graph`     | Wissensgraph mit Link- und Ähnlichkeitskanten                          |
 | `list_cards`    | Karteikarten einer Notiz                                               |
 | `review_queue`  | fällige Karten (optional pro Prüfung) – z. B. um dich abzufragen       |
@@ -175,6 +209,7 @@ gegen die HuggingFace-Referenz geprüft (identische Token-IDs, identische Kosinu
 3. ✅ Karteikarten (Basic, Reverse, Listen, Lückentext) mit FSRS
 4. ✅ Notion-artiger Editor (Tabellen, Code, Bilder, Diagramme, Slash-Menü)
 5. ✅ Prüfungs-Planung, Obsidian-Vault, MCP-Server, minimalistisches UI
-6. ⬜ Image Occlusion (Bildbereiche abdecken), Karten mit Formatierung/Bildern
-7. ⬜ Block-Ebene: Embeddings pro Absatz, Block-Referenzen, Ordner/Hierarchie
-8. ⬜ Automatische Begriffserkennung + Karten-Vorschläge, Freihand-Zeichnungen
+6. ✅ Ordner & Unterseiten, Bild-Abdeckung, Datenbanken mit Formeln und Diagrammen, Live-Preview, neuer Graph
+7. ⬜ Karten mit Formatierung/Bildern, Relationen & Rollups zwischen Datenbanken, Kalender-Ansicht
+8. ⬜ Block-Ebene: Embeddings pro Absatz, Block-Referenzen, Ordner/Hierarchie
+9. ⬜ Automatische Begriffserkennung + Karten-Vorschläge, Freihand-Zeichnungen

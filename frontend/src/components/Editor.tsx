@@ -1,22 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, cardApi, extractWikilinks, semanticApi, type Card, type Exam, type Neighbor, type NoteSummary } from '../api'
+import { api, cardApi, extractWikilinks, semanticApi, type Card, type Exam, type Neighbor, type Note, type NoteSummary } from '../api'
 import RichEditor, { toDoc, type Doc } from '../editor/RichEditor'
 import { Icon } from './Icons'
 
 interface Props {
   noteId: number
-  titles: string[]
+  notes: NoteSummary[]
   exams: Exam[]
   onSaved: () => void
   onOpenLink: (title: string) => void
   onOpenNote: (id: number) => void
   onDelete: (id: number) => void
+  onCreateSubpage: (title: string) => Promise<Note>
+  onLocalGraph: () => void
 }
 
 const SAVE_DELAY_MS = 500
-const KIND_LABEL: Record<Card['kind'], string> = { basic: '→', reverse: '⇄', list: '☰', cloze: '▭' }
+const KIND_LABEL: Record<Card['kind'], string> = { basic: '→', reverse: '⇄', list: '☰', cloze: '▭', occlusion: '▣' }
 
-export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, onOpenNote, onDelete }: Props) {
+export default function NotePage(props: Props) {
+  const { noteId, notes, exams, onSaved, onOpenLink, onOpenNote, onDelete } = props
   const [title, setTitle] = useState('')
   const [doc, setDoc] = useState<Doc | null>(null)
   const [version, setVersion] = useState(0) // bump to reload the editor with new content
@@ -25,11 +28,14 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
   const [backlinks, setBacklinks] = useState<NoteSummary[]>([])
   const [similar, setSimilar] = useState<Neighbor[]>([])
   const [cards, setCards] = useState<Card[]>([])
-  const pending = useRef<{ title: string; doc: Doc } | null>(null)
+  const [source, setSource] = useState<string | null>(null) // raw Markdown mode
+  const pending = useRef<{ title: string; doc?: Doc; markdown?: string } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const savedAt = useRef(0)
-  const titlesRef = useRef(titles)
-  titlesRef.current = titles
+  const notesRef = useRef(notes)
+  notesRef.current = notes
+  const propsRef = useRef(props)
+  propsRef.current = props
 
   const load = useCallback(async () => {
     const n = await api.getNote(noteId)
@@ -51,12 +57,12 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
   // Reload when the note changed elsewhere (Obsidian, MCP) and we have no local edits.
   useEffect(() => {
     const t = setInterval(async () => {
-      if (pending.current) return
+      if (pending.current || source !== null) return
       const n = await api.getNote(noteId).catch(() => null)
       if (n && n.updated_at !== savedAt.current && !pending.current) load()
     }, 3000)
     return () => clearInterval(t)
-  }, [noteId, load])
+  }, [noteId, load, source])
 
   const flush = useCallback(async () => {
     clearTimeout(timer.current)
@@ -64,7 +70,10 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
     if (!p) return
     pending.current = null
     setStatus('saving')
-    const saved = await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
+    const saved =
+      p.markdown !== undefined
+        ? await api.updateMarkdown(noteId, p.title, p.markdown)
+        : await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
     savedAt.current = saved.updated_at
     setStatus(pending.current ? 'dirty' : 'saved')
     onSaved()
@@ -74,23 +83,49 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
 
   useEffect(() => () => void flush(), [flush])
 
-  const schedule = (next: { title: string; doc: Doc }) => {
+  const schedule = (next: { title: string; doc?: Doc; markdown?: string }) => {
     pending.current = next
     setStatus('dirty')
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, SAVE_DELAY_MS)
   }
 
+  const toggleSource = async () => {
+    await flush()
+    if (source === null) {
+      setSource((await api.getMarkdown(noteId)).markdown)
+    } else {
+      setSource(null)
+      await load()
+    }
+  }
+
   if (!doc) return <div className="scroll" />
 
   const links = extractWikilinks(text)
-  const currentDoc = () => pending.current?.doc ?? doc
+  const self = notes.find((n) => n.id === noteId)
+  const crumbs = breadcrumbs(self?.path ?? '', notes)
   const days = (d: number) => Math.ceil((d - Date.now()) / 86_400_000)
 
   return (
     <div className="scroll">
       <div className="note-top">
+        <nav className="crumbs">
+          {crumbs.map((c, i) =>
+            c.id ? (
+              <button key={i} onClick={() => onOpenNote(c.id!)}>{c.name}</button>
+            ) : (
+              <span key={i}>{c.name}</span>
+            ),
+          )}
+        </nav>
         <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? 'Speichert…' : 'Bearbeitet'}</span>
+        <button className={`icon-btn ${source !== null ? 'on' : ''}`} title="Markdown-Quelltext" onClick={toggleSource}>
+          <Icon name="code" />
+        </button>
+        <button className="icon-btn" title="Lokaler Graph" onClick={props.onLocalGraph}>
+          <Icon name="graph" />
+        </button>
         <button className="icon-btn" title="Notiz löschen" onClick={() => confirm(`„${title}“ löschen?`) && onDelete(noteId)}>
           <Icon name="trash" />
         </button>
@@ -102,7 +137,7 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
           placeholder="Ohne Titel"
           onChange={(e) => {
             setTitle(e.target.value)
-            schedule({ title: e.target.value, doc: currentDoc() })
+            schedule(source !== null ? { title: e.target.value, markdown: source } : { title: e.target.value, doc: pending.current?.doc ?? doc })
           }}
         />
         <div className="note-meta">
@@ -117,23 +152,41 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
               {days(e.date) >= 0 ? ` · in ${days(e.date)} ${days(e.date) === 1 ? 'Tag' : 'Tagen'}` : ''}
             </span>
           ))}
+          {self?.path && source !== null && <span className="mono">{self.path}</span>}
         </div>
 
-        <RichEditor
-          key={version}
-          initial={doc}
-          getTitles={() => titlesRef.current}
-          onOpenLink={async (t) => {
-            await flush()
-            onOpenLink(t)
-          }}
-          onChange={(d) => {
-            setText(docText(d))
-            schedule({ title, doc: d })
-          }}
-        />
+        {source !== null ? (
+          <textarea
+            className="source-editor"
+            value={source}
+            spellCheck={false}
+            onChange={(e) => {
+              setSource(e.target.value)
+              schedule({ title, markdown: e.target.value })
+            }}
+          />
+        ) : (
+          <RichEditor
+            key={version}
+            initial={doc}
+            getNotes={() => notesRef.current}
+            onOpenLink={async (t) => {
+              await flush()
+              onOpenLink(t)
+            }}
+            onOpenNote={async (id) => {
+              await flush()
+              onOpenNote(id)
+            }}
+            onCreateSubpage={(t) => propsRef.current.onCreateSubpage(t)}
+            onChange={(d) => {
+              setText(docText(d))
+              schedule({ title, doc: d })
+            }}
+          />
+        )}
 
-        {(links.length > 0 || backlinks.length > 0 || similar.length > 0 || cards.length > 0) && (
+        {source === null && (links.length > 0 || backlinks.length > 0 || similar.length > 0 || cards.length > 0) && (
           <div className="connections">
             {links.length > 0 && (
               <section>
@@ -187,9 +240,19 @@ export default function NotePage({ noteId, titles, exams, onSaved, onOpenLink, o
   )
 }
 
+/** "Uni/Bio/Zelle/Mitose.md" → Uni › Bio › Zelle (a note, clickable). */
+function breadcrumbs(path: string, notes: NoteSummary[]) {
+  const parts = path.replace(/\.md$/, '').split('/').slice(0, -1)
+  return parts.map((name, i) => {
+    const key = parts.slice(0, i + 1).join('/') + '.md'
+    return { name, id: notes.find((n) => n.path === key)?.id }
+  })
+}
+
 function docText(node: unknown): string {
-  const n = node as { type?: string; text?: string; content?: unknown[] }
+  const n = node as { type?: string; text?: string; content?: unknown[]; attrs?: { title?: string } }
   if (n.type === 'text') return n.text ?? ''
+  if (n.type === 'pageLink') return `[[${n.attrs?.title ?? ''}]]\n`
   const inner = (n.content ?? []).map(docText).join('')
   return n.type === 'paragraph' || n.type === 'heading' ? inner + '\n' : inner
 }
