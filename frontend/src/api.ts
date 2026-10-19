@@ -7,8 +7,18 @@ export interface NoteSummary {
   created_at?: number
 }
 
+/** Display name of a note; new notes start without a title. */
+export const titleOf = (title: string) => title.trim() || 'Ohne Titel'
+
+export interface FolderMeta {
+  color: string
+  icon: string
+}
+
 export interface Tree {
   folders: string[]
+  /** Colour / emoji per folder path, only for customised folders. */
+  folder_meta?: Record<string, FolderMeta>
   notes: NoteSummary[]
 }
 
@@ -61,6 +71,8 @@ export const api = {
   createFolder: (path: string) => request<{ path: string }>('/folders', { method: 'POST', body: JSON.stringify({ path }) }),
   renameFolder: (from: string, to: string) =>
     request<{ path: string }>('/folders', { method: 'PUT', body: JSON.stringify({ from, to }) }),
+  setFolderMeta: (path: string, meta: FolderMeta) =>
+    request<void>('/folders/meta', { method: 'PUT', body: JSON.stringify({ path, ...meta }) }),
   deleteFolder: (path: string) => request<void>(`/folders?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   updateNote: (id: number, title: string, content: string) =>
     request<Note>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ title, content }) }),
@@ -154,10 +166,18 @@ export const examApi = {
   remove: (id: number) => request<void>(`/exams/${id}`, { method: 'DELETE' }),
 }
 
+function scopeQuery(exam: number, path: string) {
+  const q = new URLSearchParams()
+  if (exam) q.set('exam', String(exam))
+  if (path) q.set('path', path)
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
 export const cardApi = {
   noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),
-  queue: (exam = 0) => request<Card[]>(`/review/queue${exam ? `?exam=${exam}` : ''}`),
-  stats: (exam = 0) => request<ReviewStats>(`/review/stats${exam ? `?exam=${exam}` : ''}`),
+  queue: (exam = 0, path = '') => request<Card[]>(`/review/queue${scopeQuery(exam, path)}`),
+  stats: (exam = 0, path = '') => request<ReviewStats>(`/review/stats${scopeQuery(exam, path)}`),
   review: (id: number, rating: 1 | 2 | 3 | 4) =>
     request<Card>(`/cards/${id}/review`, { method: 'POST', body: JSON.stringify({ rating }) }),
 }

@@ -1,11 +1,17 @@
 // Small self-contained test runner (no external framework).
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <unistd.h>
 
 #include "content.hpp"
 #include "fsrs.hpp"
 #include "markdown.hpp"
+#include "service.hpp"
 #include "wikilinks.hpp"
 
 namespace {
@@ -214,6 +220,57 @@ void test_exam_scheduling() {
   auto s2 = fsrs::review(strong, fsrs::Good, c.due, {}, exam);
   CHECK(s2.due > exam);
 }
+// Review scopes (folder / note), folder colours and untitled notes, on a real store + vault.
+void test_vault_scopes() {
+  namespace fs = std::filesystem;
+  fs::path dir = fs::temp_directory_path() / ("synapse-test-" + std::to_string(getpid()));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  {
+    NoteStore store((dir / "t.db").string());
+    SemanticIndex semantic(store, nullptr);
+    Vault vault(store, dir / "vault", [](int64_t) {}, [](int64_t) {});
+    Service svc(store, semantic, vault);
+
+    svc.create_folder("Uni/Bio");
+    svc.create_folder("Unikram");
+    svc.create_folder("O'Brien");
+    int64_t zelle = svc.create_note_markdown("Zelle", "Kern >> Steuerzentrale", "Uni/Bio")["id"];
+    int64_t mitose = svc.create_subpage(zelle, "Mitose", "")["id"];
+    svc.update_note_markdown(mitose, "Mitose", "Phasen >>\n- Pro\n- Meta\n");
+    svc.create_note_markdown("Andere", "A >> B", "Unikram");
+    svc.create_note_markdown("Zitat", "C >> D", "O'Brien");
+
+    auto total = [&](const std::string& path) { return svc.review_stats({0, path})["total"].get<int>(); };
+    CHECK(total("") == 4);
+    CHECK(total("Uni") == 2);            // Zelle + its subpage, not "Unikram"
+    CHECK(total("Uni/Bio/Zelle.md") == 2);
+    CHECK(total("Uni/Bio/Zelle/Mitose.md") == 1);
+    CHECK(total("Unikram") == 1);
+    CHECK(total("O'Brien") == 1);        // quoted safely
+    // a scoped session introduces all of its new cards, regardless of the daily limit
+    CHECK(svc.review_queue({0, "Uni"}).size() == 2);
+
+    svc.set_folder_meta("Uni/Bio", "green", "🧬");
+    svc.rename_folder("Uni", "Studium");
+    json meta = svc.tree()["folder_meta"];
+    CHECK(meta.contains("Studium/Bio") && meta["Studium/Bio"]["icon"] == "🧬" && !meta.contains("Uni/Bio"));
+    CHECK(total("Studium/Bio") == 2);
+    svc.set_folder_meta("Studium/Bio", "", "");
+    CHECK(svc.tree()["folder_meta"].empty());
+
+    // A note without a title lives in "Ohne Titel.md" but keeps its empty title,
+    // also after the file was edited in another app.
+    int64_t untitled = svc.create_note("", "")["id"];
+    CHECK(fs::exists(dir / "vault" / "Ohne Titel.md"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));  // mtime granularity
+    std::ofstream(dir / "vault" / "Ohne Titel.md", std::ios::app) << "Neuer Text\n";
+    vault.start();
+    CHECK(store.get(untitled)->title.empty());
+    CHECK(svc.note_markdown(untitled).find("Neuer Text") != std::string::npos);
+  }
+  fs::remove_all(dir);
+}
 }  // namespace
 
 int main() {
@@ -225,6 +282,7 @@ int main() {
   test_markdown_import();
   test_exam_scheduling();
   test_markdown_blocks();
+  test_vault_scopes();
   if (failures) {
     std::cerr << failures << " check(s) failed\n";
     return 1;

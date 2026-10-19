@@ -72,6 +72,16 @@ struct ExamProgress {
   double predicted_retention = 0;
 };
 
+// Which cards a review session covers; empty = all.
+struct CardScope {
+  int64_t exam_id = 0;
+  std::string path;  // vault folder ("Uni/Bio") or note file ("Uni/Bio/Zelle.md")
+};
+
+struct FolderMeta {
+  std::string path, color, icon;
+};
+
 struct ReviewStats {
   int due = 0;           // learning + review cards due now
   int new_available = 0; // new cards that may still be introduced today
@@ -116,11 +126,16 @@ class NoteStore {
 
   // --- flashcards ---
   std::vector<Card> note_cards(int64_t note_id);
-  // exam_id != 0 restricts to the cards of that exam.
-  std::vector<Card> review_queue(int64_t now_ms, int new_per_day, int limit, int64_t exam_id = 0);
+  std::vector<Card> review_queue(int64_t now_ms, int new_per_day, int limit, const CardScope& scope = {});
   std::optional<Card> card(int64_t id);
   std::optional<Card> review_card(int64_t id, fsrs::Rating rating, int64_t now_ms);
-  ReviewStats review_stats(int64_t now_ms, int new_per_day, int64_t exam_id = 0);
+  ReviewStats review_stats(int64_t now_ms, int new_per_day, const CardScope& scope = {});
+
+  // --- folder colour / icon ---
+  std::vector<FolderMeta> folder_meta();
+  void set_folder_meta(const FolderMeta& m);  // empty colour and icon = remove
+  void move_folder_meta(const std::string& from, const std::string& to);  // incl. subfolders
+  void remove_folder_meta(const std::string& path);                       // incl. subfolders
 
   // --- exams ---
   std::vector<Exam> list_exams();
@@ -148,9 +163,9 @@ class NoteStore {
   void migrate_v2();
   void index_note(int64_t id, const std::string& content);
   std::optional<Note> get_locked(int64_t id);
-  int new_introduced_today(int64_t now_ms, int64_t exam_id);
+  int new_introduced_today(int64_t now_ms, const CardScope& scope);
   int exam_new_quota(int64_t now_ms, int64_t exam_id, int64_t exam_date);
-  int new_limit(int64_t now_ms, int new_per_day, int64_t exam_id);
+  int new_limit(int64_t now_ms, int new_per_day, const CardScope& scope);
   void set_exam_notes(int64_t exam_id, const std::vector<int64_t>& note_ids);
   std::optional<Exam> exam_locked(int64_t id);
   std::vector<Card> query_cards(Stmt& s);

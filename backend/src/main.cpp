@@ -40,7 +40,7 @@ json parse_body(const httplib::Request& req) {
 // plain text; {"markdown"} is accepted instead of content.
 void note_fields(const json& body, std::string& title, std::string& content, bool& is_markdown) {
   if (body.contains("folder") && !body["folder"].is_string()) throw ServiceError(400, "folder must be a string");
-  title = body.value("title", "Untitled");
+  title = body.value("title", "");
   is_markdown = body.contains("markdown");
   const json& c = is_markdown ? body["markdown"] : body.value("content", json(""));
   content = c.is_string() ? c.get<std::string>() : c.dump();
@@ -155,6 +155,11 @@ int main(int argc, char** argv) {
     svc.rename_folder(b.value("from", ""), b.value("to", ""));
     send_json(res, {{"path", Vault::clean_folder(b.value("to", ""))}});
   });
+  srv.Put("/api/folders/meta", [&](Req req, Res res) {
+    json body = parse_body(req);
+    svc.set_folder_meta(body.value("path", ""), body.value("color", ""), body.value("icon", ""));
+    res.status = 204;
+  });
   srv.Delete("/api/folders", [&](Req req, Res res) {
     svc.delete_folder(req.get_param_value("path"));
     res.status = 204;
@@ -180,12 +185,13 @@ int main(int argc, char** argv) {
   srv.Get("/api/graph", [&](Req, Res res) { send_json(res, svc.graph()); });
 
   // ---- flashcards ----
-  auto exam_param = [](Req req) {
+  // ?exam=<id> and/or ?path=<folder or note file> narrow a review session
+  auto scope_param = [](Req req) {
     std::string e = req.get_param_value("exam");
-    return e.empty() ? int64_t{0} : std::stoll(e);
+    return CardScope{e.empty() ? int64_t{0} : std::stoll(e), req.get_param_value("path")};
   };
-  srv.Get("/api/review/stats", [&](Req req, Res res) { send_json(res, svc.review_stats(exam_param(req))); });
-  srv.Get("/api/review/queue", [&](Req req, Res res) { send_json(res, svc.review_queue(exam_param(req))); });
+  srv.Get("/api/review/stats", [&](Req req, Res res) { send_json(res, svc.review_stats(scope_param(req))); });
+  srv.Get("/api/review/queue", [&](Req req, Res res) { send_json(res, svc.review_queue(scope_param(req))); });
   srv.Post(R"(/api/cards/(\d+)/review)", [&](Req req, Res res) {
     send_json(res, svc.review_card(path_id(req), parse_body(req).value("rating", 0)));
   });

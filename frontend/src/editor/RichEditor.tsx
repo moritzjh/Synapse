@@ -6,8 +6,6 @@ import { TableKit } from '@tiptap/extension-table'
 import Highlight from '@tiptap/extension-highlight'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { Placeholder } from '@tiptap/extensions'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { common, createLowlight } from 'lowlight'
 import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import { Mermaid } from './Mermaid'
 import { OcclusionImage } from './OcclusionImage'
@@ -17,9 +15,9 @@ import type { NoteSummary } from '../api'
 import { SyntaxHighlight } from './syntax'
 import { SlashCommands, WikilinkSuggest } from './commands'
 import { insertImages } from './upload'
+import { CodeBlock } from './CodeBlock'
+import { CardTyping, CaretMargin } from './typing'
 import type { Doc } from './doc'
-
-const lowlight = createLowlight(common)
 
 export { toDoc } from './doc'
 export type { Doc } from './doc'
@@ -46,7 +44,9 @@ export default function RichEditor(props: Props) {
       Highlight,
       TaskList,
       TaskItem.configure({ nested: true }),
-      CodeBlockLowlight.configure({ lowlight, defaultLanguage: 'plaintext' }),
+      CodeBlock,
+      CardTyping,
+      CaretMargin,
       Mermaid,
       Callout,
       Details.configure({ persist: true, HTMLAttributes: { class: 'toggle' } }),

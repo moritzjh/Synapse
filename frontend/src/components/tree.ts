@@ -1,4 +1,4 @@
-import type { NoteSummary, Tree } from '../api'
+import { titleOf, type NoteSummary, type Tree } from '../api'
 
 export interface TreeNode {
   kind: 'folder' | 'note'
@@ -35,7 +35,7 @@ export function buildTree(tree: Tree): TreeNode[] {
   for (const n of tree.notes) {
     const path = n.path || `${n.title}.md`
     const key = path.replace(/\.md$/, '')
-    const node: TreeNode = { kind: 'note', name: n.title, key, note: n, children: [] }
+    const node: TreeNode = { kind: 'note', name: titleOf(n.title), key, note: n, children: [] }
     notes.set(key, node)
     folder(parentOf(key)).children.push(node)
   }

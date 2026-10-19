@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { examApi, type Exam, type ExamInput, type NoteSummary } from '../api'
+import { examApi, titleOf, type Exam, type ExamInput, type NoteSummary } from '../api'
 import { Icon } from './Icons'
 
 interface Props {
@@ -86,7 +86,7 @@ export default function Exams({ exams, notes, onChanged, onStudy }: Props) {
                   {days >= 0 && <span><b>{p.new_today}</b> neue heute</span>}
                   <span><b>{p.due}</b> fällig</span>
                 </div>
-                <div className="exam-notes">{e.notes.map((n) => n.title).join(' · ') || 'Keine Notizen ausgewählt'}</div>
+                <div className="exam-notes">{e.notes.map((n) => titleOf(n.title)).join(' · ') || 'Keine Notizen ausgewählt'}</div>
               </div>
             )
           })}
@@ -142,7 +142,7 @@ function ExamForm({ exam, notes, onSave, onCancel }: {
           {visible.map((n) => (
             <label key={n.id}>
               <input type="checkbox" checked={picked.has(n.id)} onChange={() => toggle(n.id)} />
-              {n.title}
+              {titleOf(n.title)}
             </label>
           ))}
         </div>

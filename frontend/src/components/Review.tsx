@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { cardApi, type Card, type Exam, type Mask, type ReviewStats } from '../api'
 import { Icon } from './Icons'
 
@@ -21,6 +21,7 @@ const KIND: Record<Card['kind'], { name: string; icon: 'text' | 'reset' | 'multi
 
 /** "[[Titel|Alias]]" → "Alias", "[[Titel]]" → "Titel" for display on cards. */
 const clean = (s: string) => s.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, t, a) => a ?? t)
+const long = (s: string) => (s.length > 160 || s.split('\n').length > 4 ? ' long' : '')
 
 function formatInterval(ms: number) {
   const min = ms / 60_000
@@ -47,27 +48,36 @@ const maskOrder = (card: Card) =>
 
 const maskStyle = (m: Mask) => ({ left: `${m.x * 100}%`, top: `${m.y * 100}%`, width: `${m.w * 100}%`, height: `${m.h * 100}%` })
 
+/** A folder ("Uni/Bio") or note file ("Uni/Bio/Zelle.md") to study on its own. */
+export interface StudyScope {
+  path: string
+  name: string
+}
+
 interface Props {
   exam?: number
+  scope?: StudyScope
   exams: Exam[]
   onExam: (exam?: number) => void
   onOpenNote: (id: number) => void
   onChanged: () => void
 }
 
-export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: Props) {
+export default function Review({ exam, scope, exams, onExam, onOpenNote, onChanged }: Props) {
+  const path = scope?.path
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [stats, setStats] = useState<ReviewStats | null>(null)
   const [revealed, setRevealed] = useState<Set<number>>(new Set())
   const [ratings, setRatings] = useState<Rating[]>([])
   const [leaving, setLeaving] = useState<Rating | null>(null)
+  const cardRef = useRef<HTMLElement>(null)
 
   const load = useCallback(async () => {
-    const [q, s] = await Promise.all([cardApi.queue(exam), cardApi.stats(exam)])
+    const [q, s] = await Promise.all([cardApi.queue(exam, path), cardApi.stats(exam, path)])
     setQueue(q)
     setStats(s)
     setRevealed(new Set())
-  }, [exam])
+  }, [exam, path])
 
   useEffect(() => {
     load()
@@ -80,6 +90,12 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
 
   const card = queue?.[0]
   const parts = card ? partCount(card) : 0
+
+  // Long cards scroll inside: keep the part that was just revealed (and the next one) in view.
+  useEffect(() => {
+    const el = cardRef.current?.querySelector('.fc-list li.next, .gap.next, .fc-list li.open:last-child')
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [revealed])
   const allRevealed = card ? revealed.size >= parts : false
   const done = ratings.length
 
@@ -99,13 +115,13 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
       const rest = queue!.slice(1)
       if (rest.length) {
         setQueue(rest)
-        cardApi.stats(exam).then(setStats)
+        cardApi.stats(exam, path).then(setStats)
       } else {
         await load()
       }
       onChanged()
     },
-    [card, queue, load, onChanged, exam, leaving],
+    [card, queue, load, onChanged, exam, path, leaving],
   )
 
   useEffect(() => {
@@ -132,7 +148,8 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
       <div className="study-top">
         <label className="study-deck">
           <Icon name="cards" />
-          <select value={exam ?? 0} onChange={(e) => onExam(Number(e.target.value) || undefined)}>
+          <select value={scope ? -1 : exam ?? 0} onChange={(e) => onExam(Number(e.target.value) || undefined)}>
+            {scope && <option value={-1}>{scope.name}</option>}
             <option value={0}>Alle Karten</option>
             {exams.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -148,18 +165,19 @@ export default function Review({ exam, exams, onExam, onOpenNote, onChanged }: P
       </div>
 
       {!card ? (
-        <Summary ratings={ratings} examName={current?.name} onAgain={load} />
+        <Summary ratings={ratings} examName={scope?.name ?? current?.name} onAgain={load} />
       ) : (
         <div className="stage">
           <div className={`deck ${queue.length > 1 ? 'stacked' : ''}`}>
             <article
+              ref={cardRef}
               key={card.id}
               className={`fc kind-${card.kind} ${allRevealed ? 'is-revealed' : ''} ${leaving ? `leave-${leaving === 1 ? 'left' : 'right'}` : ''}`}
             >
               <header className="fc-meta">
                 <span className="fc-type"><Icon name={KIND[card.kind].icon} /> {KIND[card.kind].name}</span>
                 <button className="fc-note" onClick={() => onOpenNote(card.note_id)} title="Notiz öffnen">
-                  {card.note_title}
+                  {card.note_title.trim() || 'Ohne Titel'}
                 </button>
                 <span className={`fc-state ${card.state === 0 ? 'new' : ''}`}>{card.state === 0 ? 'Neu' : card.lapses ? `${card.lapses}× vergessen` : 'Wiederholung'}</span>
               </header>
@@ -205,12 +223,12 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
       <div className="flip">
         <div className="flip-inner">
           <div className="face front">
-            <div className="fc-q">{clean(card.front)}</div>
+            <div className={'fc-q' + long(card.front)}>{clean(card.front)}</div>
           </div>
           <div className="face back" aria-hidden={!allRevealed}>
-            <div className="fc-q small">{clean(card.front)}</div>
+            <div className={'fc-q small' + long(card.front)}>{clean(card.front)}</div>
             <div className="fc-rule" />
-            <div className="fc-a">{clean(card.data.back ?? '')}</div>
+            <div className={'fc-a' + long(card.data.back ?? '')}>{clean(card.data.back ?? '')}</div>
           </div>
         </div>
       </div>

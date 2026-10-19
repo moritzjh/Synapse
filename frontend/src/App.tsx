@@ -5,11 +5,14 @@ import NotePage from './components/Editor'
 import GraphView from './components/GraphView'
 import Review from './components/Review'
 import Exams from './components/Exams'
+import FolderPage from './components/FolderPage'
+import type { StudyScope } from './components/Review'
 
 export type View =
   | { kind: 'note'; id: number }
   | { kind: 'graph'; focus?: number }
-  | { kind: 'review'; exam?: number }
+  | { kind: 'review'; exam?: number; scope?: StudyScope }
+  | { kind: 'folder'; path: string }
   | { kind: 'exams' }
   | { kind: 'home' }
 
@@ -46,9 +49,11 @@ export default function App() {
   }, [refresh])
 
   const openNote = (id: number) => setView({ kind: 'note', id })
+  const openFolder = (path: string) => setView({ kind: 'folder', path })
+  const study = (path: string, name: string) => setView({ kind: 'review', scope: { path, name } })
 
   const createNote = async (title = '', where: { folder?: string; parentId?: number } = {}) => {
-    const note = await api.createNote(title || 'Ohne Titel', '', where)
+    const note = await api.createNote(title, '', where)
     await refresh()
     openNote(note.id)
     return note
@@ -61,8 +66,9 @@ export default function App() {
   }
 
   const deleteNote = async (id: number) => {
+    const folder = notes.find((n) => n.id === id)?.path.split('/').slice(0, -1).join('/')
     await api.deleteNote(id)
-    setView({ kind: 'home' })
+    if (view.kind === 'note' && view.id === id) setView(folder ? { kind: 'folder', path: folder } : { kind: 'home' })
     await refresh()
   }
 
@@ -75,6 +81,8 @@ export default function App() {
         status={status}
         onNavigate={setView}
         onCreateNote={(where) => createNote('', where)}
+        onDeleteNote={deleteNote}
+        onStudy={study}
         onChanged={refresh}
       />
       <main className="main">
@@ -84,7 +92,10 @@ export default function App() {
             key={view.id}
             noteId={view.id}
             notes={notes}
+            tree={tree}
             exams={exams.filter((e) => e.notes.some((n) => n.id === view.id))}
+            onOpenFolder={openFolder}
+            onStudy={study}
             onSaved={refresh}
             onOpenLink={openByTitle}
             onOpenNote={openNote}
@@ -95,7 +106,17 @@ export default function App() {
         ) : view.kind === 'graph' ? (
           <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} />
         ) : view.kind === 'review' ? (
-          <Review key={view.exam ?? 0} exam={view.exam} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
+          <Review key={`${view.exam ?? 0}:${view.scope?.path ?? ''}`} exam={view.exam} scope={view.scope} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
+        ) : view.kind === 'folder' ? (
+          <FolderPage
+            path={view.path}
+            tree={tree}
+            onFolder={openFolder}
+            onNote={openNote}
+            onCreateNote={(where) => createNote('', where)}
+            onStudy={study}
+            onChanged={refresh}
+          />
         ) : view.kind === 'exams' ? (
           <Exams exams={exams} notes={notes} onChanged={refreshMeta} onStudy={(exam) => setView({ kind: 'review', exam })} />
         ) : (

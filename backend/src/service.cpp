@@ -95,7 +95,7 @@ int64_t Service::find_note(const std::string& title) {
 }
 
 json Service::create_note(const std::string& title, const std::string& content, const std::string& folder) {
-  Note n = store_.create(title.empty() ? "Untitled" : title, content);
+  Note n = store_.create(title, content);
   semantic_.note_changed(n.id);
   vault_.export_note(n.id, folder);
   return to_json(n);
@@ -240,7 +240,9 @@ json Service::upsert_database_row(int64_t note_id, const std::string& db_id, con
 json Service::tree() {
   json folders = json::array();
   for (const auto& f : vault_.folders()) folders.push_back(f);
-  return {{"folders", folders}, {"notes", list_notes()}};
+  json meta = json::object();
+  for (const auto& m : store_.folder_meta()) meta[m.path] = {{"color", m.color}, {"icon", m.icon}};
+  return {{"folders", folders}, {"folder_meta", meta}, {"notes", list_notes()}};
 }
 
 json Service::move_note(int64_t id, const std::string& folder) {
@@ -268,6 +270,7 @@ std::string Service::create_folder(const std::string& path) {
 void Service::rename_folder(const std::string& from, const std::string& to) {
   try {
     vault_.rename_folder(from, to);
+    store_.move_folder_meta(Vault::clean_folder(from), Vault::clean_folder(to));
   } catch (const std::exception& e) {
     throw ServiceError(400, e.what());
   }
@@ -280,10 +283,18 @@ void Service::delete_folder(const std::string& path) {
     semantic_.note_removed(id);
   }
   vault_.trash_folder(path);  // files (incl. non-notes) go to .trash as a whole
+  store_.remove_folder_meta(Vault::clean_folder(path));
+}
+
+void Service::set_folder_meta(const std::string& path, const std::string& color, const std::string& icon) {
+  std::string clean = Vault::clean_folder(path);
+  if (clean.empty()) throw ServiceError(400, "invalid folder");
+  if (color.size() > 32 || icon.size() > 32) throw ServiceError(400, "colour or icon too long");
+  store_.set_folder_meta({clean, color, icon});
 }
 
 json Service::update_note(int64_t id, const std::string& title, const std::string& content) {
-  auto n = store_.update(id, title.empty() ? "Untitled" : title, content);
+  auto n = store_.update(id, title, content);
   if (!n) throw ServiceError(404, "note not found");
   changed(id);
   return to_json(*n);
@@ -333,10 +344,10 @@ json Service::graph() {
 
 json Service::note_cards(int64_t note_id) { return arr(store_.note_cards(note_id)); }
 
-json Service::review_queue(int64_t exam_id, int limit) {
+json Service::review_queue(const CardScope& scope, int limit) {
   int64_t now = now_ms();
   json a = json::array();
-  for (const auto& c : store_.review_queue(now, kNewCardsPerDay, limit, exam_id)) {
+  for (const auto& c : store_.review_queue(now, kNewCardsPerDay, limit, scope)) {
     json j = to_json(c);
     json preview = json::object();
     for (int r = fsrs::Again; r <= fsrs::Easy; ++r)
@@ -347,8 +358,8 @@ json Service::review_queue(int64_t exam_id, int limit) {
   return a;
 }
 
-json Service::review_stats(int64_t exam_id) {
-  ReviewStats st = store_.review_stats(now_ms(), kNewCardsPerDay, exam_id);
+json Service::review_stats(const CardScope& scope) {
+  ReviewStats st = store_.review_stats(now_ms(), kNewCardsPerDay, scope);
   return {{"due", st.due}, {"new", st.new_available}, {"total", st.total}, {"reviewed_today", st.reviewed_today}};
 }
 
