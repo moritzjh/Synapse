@@ -43,7 +43,7 @@ json to_json(const Note& n) {
           {"created_at", n.created_at}, {"updated_at", n.updated_at}};
 }
 json to_json(const NoteSummary& n) {
-  return {{"id", n.id}, {"title", n.title}, {"updated_at", n.updated_at}, {"path", n.path}};
+  return {{"id", n.id}, {"title", n.title}, {"updated_at", n.updated_at}, {"path", n.path}, {"created_at", n.created_at}};
 }
 json to_json(const Neighbor& n) { return {{"id", n.id}, {"title", n.title}, {"score", n.score}}; }
 json to_json(const Card& c) {
