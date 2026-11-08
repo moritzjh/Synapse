@@ -10,12 +10,12 @@ const ROOT = 'Anki'
 
 type Json = Record<string, unknown>
 
-/** Text with "\n" and \u0001latex\u0002 markers → TipTap inline nodes. */
+/** Text with "\n" and \uE000latex\uE001 markers → TipTap inline nodes. */
 function inline(text: string): Json[] {
   const out: Json[] = []
   text.split('\n').forEach((line, i) => {
     if (i) out.push({ type: 'hardBreak' })
-    line.split(/\u0001([^\u0002]*)\u0002/).forEach((part, j) => {
+    line.split(/\uE000([^\uE001]*)\uE001/).forEach((part, j) => {
       if (j % 2) out.push({ type: 'inlineMath', attrs: { latex: part } })
       else if (part) out.push({ type: 'text', text: part })
     })
