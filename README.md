@@ -32,8 +32,11 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
   **Diagramm** (Balken, Linie, Ring); Filter, Sortierung, Summenzeile
 - Formeln wie in Notion: `prop("Preis") * prop("Menge")`, `if(prop("Status") == "Erledigt", "✓", dateBetween(prop("Fällig"), today(), "days"))`
   – Operatoren `+ - * / % == != < > and or not`, Funktionen u. a. `if concat length contains round min max sum now today dateAdd dateBetween formatDate empty`
-- `/` öffnet das Befehlsmenü, `[[` vervollständigt Links zu anderen Notizen
-- Formatierung über ein Menü, das bei Textauswahl erscheint (inkl. „Lücke“ und „Karte“)
+- **Blöcke wie in Notion**: beim Darüberfahren erscheinen links `+` (Block darunter einfügen) und `⋮⋮`
+  (ziehen = verschieben, klicken = Menü mit „Umwandeln in“, Als Karteikarte, Duplizieren, Nach oben/unten, Löschen);
+  Backspace am Anfang einer Überschrift, eines Listenpunkts oder Zitats macht daraus wieder normalen Text
+- `/` öffnet das gruppierte Befehlsmenü (mit Markdown-Kürzeln wie `#`, `-`, `[]`), `[[` vervollständigt Links
+- Formatierung über ein Menü, das bei Textauswahl erscheint (inkl. Blocktyp umwandeln, „Lücke“ und „Karte“)
 - **Live-Preview** wie in Obsidian: `[[…]]`, `>>`, `::` und `{{…}}` werden nur angezeigt, solange der Cursor darin steht;
   sonst Link-Text, Karten-Pille bzw. markierte Lücke. Links öffnen per Klick, Vorschau beim Darüberfahren,
   nicht existierende Ziele sind gestrichelt

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from '@tiptap/suggestion'
 
@@ -6,6 +6,10 @@ export interface MenuItem {
   title: string
   hint?: string
   icon?: string
+  /** section header shown above the first item of each group */
+  group?: string
+  /** keyboard / Markdown shortcut, shown on the right */
+  kbd?: string
 }
 
 interface MenuHandle {
@@ -44,19 +48,25 @@ const Menu = forwardRef<MenuHandle, MenuProps>(({ items, command, empty }, ref) 
     <div className="suggest-menu">
       {items.length === 0 && <div className="suggest-empty">{empty}</div>}
       {items.map((item, i) => (
-        <button
-          key={item.title + i}
-          className={i === index ? 'active' : ''}
-          onMouseEnter={() => setIndex(i)}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            command(item)
-          }}
-        >
-          {item.icon && <span className="suggest-icon">{item.icon}</span>}
-          <span>{item.title}</span>
-          {item.hint && <span className="suggest-hint">{item.hint}</span>}
-        </button>
+        <Fragment key={item.title + i}>
+          {item.group && item.group !== items[i - 1]?.group && <div className="suggest-group">{item.group}</div>}
+          <button
+            className={i === index ? 'active' : ''}
+            ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+            onMouseEnter={() => setIndex(i)}
+            onMouseDown={(e) => {
+              e.preventDefault()
+              command(item)
+            }}
+          >
+            {item.icon && <span className="suggest-icon">{item.icon}</span>}
+            <span className="suggest-title">
+              {item.title}
+              {item.hint && <span className="suggest-hint">{item.hint}</span>}
+            </span>
+            {item.kbd && <kbd>{item.kbd}</kbd>}
+          </button>
+        </Fragment>
       ))}
     </div>
   )

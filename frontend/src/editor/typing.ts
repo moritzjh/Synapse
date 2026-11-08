@@ -122,3 +122,30 @@ export const CardTyping = Extension.create({
     }
   },
 })
+
+/**
+ * Notion's Backspace: at the very start of a heading, list item or quote the
+ * block first turns back into plain text instead of merging with the line above.
+ */
+export const BlockBackspace = Extension.create({
+  name: 'blockBackspace',
+  priority: 150,
+  addKeyboardShortcuts() {
+    return {
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection
+        if (!empty || $from.parentOffset !== 0) return false
+        const parent = $from.parent
+        if (parent.type.name === 'heading') return editor.commands.setParagraph()
+        if ($from.depth >= 2) {
+          const wrapper = $from.node(-1)
+          const first = $from.index(-1) === 0
+          if (first && (wrapper.type.name === 'listItem' || wrapper.type.name === 'taskItem'))
+            return editor.commands.liftListItem(wrapper.type.name)
+          if (first && wrapper.type.name === 'blockquote') return editor.commands.lift('blockquote')
+        }
+        return false
+      },
+    }
+  },
+})

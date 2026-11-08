@@ -244,16 +244,20 @@ svg.icon { width: 16px; height: 16px; flex-shrink: 0; }
 
 .suggest-popup { position: fixed; z-index: 50; }
 .suggest-menu {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px; width: 270px;
-  max-height: 320px; overflow-y: auto; box-shadow: var(--shadow);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: 300px;
+  max-height: 360px; overflow-y: auto; box-shadow: var(--shadow);
 }
-.suggest-menu button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 5px 8px; font-size: 14px; }
+.suggest-menu button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 5px 8px; font-size: 14px; border-radius: 6px; }
+.suggest-group { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 8px 8px 4px; }
+.suggest-group:first-child { padding-top: 4px; }
+.suggest-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.suggest-menu kbd { margin-left: auto; font-size: 11px; color: var(--muted); border: none; background: var(--bg-subtle); padding: 1px 6px; border-radius: 4px; font-family: var(--mono); }
 .suggest-menu button.active { background: var(--bg-hover); }
 .suggest-icon {
   width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 5px;
   font-size: 11.5px; color: var(--text-2); background: var(--bg);
 }
-.suggest-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.suggest-hint { font-size: 11.5px; color: var(--muted); }
 .suggest-empty { padding: 6px 8px; color: var(--muted); font-size: 13px; }
 
 /* ---------- graph ---------- */
@@ -1172,3 +1176,38 @@ button.folder-big:hover { background: var(--bg-active); }
 }
 .study-chip:hover { color: var(--text); border-color: var(--text-2); }
 .study-chip .icon { width: 13px; height: 13px; }
+
+/* ---------- Notion-style block handle ---------- */
+.block-handle {
+  position: fixed; z-index: 20; display: flex; gap: 1px; opacity: 0; pointer-events: none; transition: opacity 0.12s;
+}
+.block-handle.visible { opacity: 1; pointer-events: auto; }
+.block-handle button {
+  width: 22px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: var(--muted);
+}
+.block-handle button:hover { background: var(--bg-hover); color: var(--text-2); }
+.block-handle svg { width: 15px; height: 15px; }
+.block-handle .bh-add svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.block-handle .bh-drag { cursor: grab; }
+.block-handle .bh-drag svg { fill: currentColor; }
+.block-handle .bh-drag:active { cursor: grabbing; }
+.ProseMirror .ProseMirror-selectednode:not(img) { outline: none; background: var(--accent-soft); border-radius: 4px; }
+.block-menu {
+  position: fixed; z-index: 60; width: 236px; padding: 4px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; max-height: 80vh; overflow-y: auto;
+}
+.block-menu-label { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 6px 8px 4px; }
+.block-menu button { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 6px; font-size: 13.5px; text-align: left; }
+.block-menu button:hover:not(:disabled) { background: var(--bg-hover); }
+.block-menu button:disabled { opacity: 0.4; cursor: default; }
+.block-menu button.on { color: var(--accent); }
+.block-menu .danger { color: var(--red); }
+.block-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+.block-menu kbd { margin-left: auto; font-size: 11px; color: var(--muted); border: none; background: var(--bg-subtle); padding: 0 6px; border-radius: 4px; font-family: var(--mono); }
+.bm-icon { width: 22px; text-align: center; font-size: 12px; color: var(--text-2); }
+.bubble-type { position: relative; }
+.bubble-type-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; width: 190px; padding: 4px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+}
+.bubble .bubble-type-list button { justify-content: flex-start; display: flex; gap: 8px; width: 100%; text-align: left; }

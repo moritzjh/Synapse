@@ -1,6 +1,7 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
+import { NodeSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { TableKit } from '@tiptap/extension-table'
 import Highlight from '@tiptap/extension-highlight'
@@ -16,7 +17,8 @@ import { SyntaxHighlight } from './syntax'
 import { SlashCommands, WikilinkSuggest } from './commands'
 import { insertImages } from './upload'
 import { CodeBlock } from './CodeBlock'
-import { CardTyping, CaretMargin } from './typing'
+import { BlockBackspace, CardTyping, CaretMargin } from './typing'
+import { BlockHandle, TARGETS, applyTarget, type Target } from './BlockHandle'
 import type { Doc } from './doc'
 
 export { toDoc } from './doc'
@@ -47,6 +49,8 @@ export default function RichEditor(props: Props) {
       CodeBlock,
       CardTyping,
       CaretMargin,
+      BlockBackspace,
+      BlockHandle,
       Mermaid,
       Callout,
       Details.configure({ persist: true, HTMLAttributes: { class: 'toggle' } }),
@@ -56,8 +60,14 @@ export default function RichEditor(props: Props) {
       PageLink.configure({ getNotes: () => cb.current.getNotes(), onOpenNote: (id) => cb.current.onOpenNote(id) }),
       Placeholder.configure({
         includeChildren: true,
-        placeholder: ({ node }) =>
-          node.type.name === 'heading' ? 'Überschrift' : node.type.name === 'detailsSummary' ? 'Titel' : 'Schreibe, oder tippe / für Blöcke',
+        placeholder: ({ node, editor, pos }) => {
+          if (node.type.name === 'heading') return `Überschrift ${node.attrs.level}`
+          if (node.type.name === 'detailsSummary') return 'Titel'
+          const parent = editor.state.doc.resolve(pos).parent.type.name
+          if (parent === 'listItem' || parent === 'taskItem') return 'Liste'
+          if (parent === 'blockquote') return 'Zitat'
+          return 'Schreibe, oder tippe / für Blöcke'
+        },
       }),
       SyntaxHighlight.configure({ onOpenLink: (t) => cb.current.onOpenLink(t), getNotes: () => cb.current.getNotes() }),
       SlashCommands.configure({ createSubpage: (t) => cb.current.onCreateSubpage(t) }),
@@ -96,6 +106,7 @@ export default function RichEditor(props: Props) {
 
 /** Appears above selected text – the only formatting chrome in the UI. */
 function FormatMenu({ editor }: { editor: Editor }) {
+  const [typeOpen, setTypeOpen] = useState(false)
   const s = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -105,7 +116,23 @@ function FormatMenu({ editor }: { editor: Editor }) {
       strike: e.isActive('strike'),
       code: e.isActive('code'),
       highlight: e.isActive('highlight'),
-      h2: e.isActive('heading', { level: 2 }),
+      type: (e.isActive('heading', { level: 1 })
+        ? 'h1'
+        : e.isActive('heading', { level: 2 })
+          ? 'h2'
+          : e.isActive('heading', { level: 3 })
+            ? 'h3'
+            : e.isActive('taskList')
+              ? 'task'
+              : e.isActive('orderedList')
+                ? 'ordered'
+                : e.isActive('bulletList')
+                  ? 'bullet'
+                  : e.isActive('blockquote')
+                    ? 'quote'
+                    : e.isActive('callout')
+                      ? 'callout'
+                      : 'text') as Target,
     }),
   })
   const c = () => editor.chain().focus()
@@ -134,7 +161,11 @@ function FormatMenu({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="formatMenu"
       shouldShow={({ editor: e, from, to }) =>
-        from !== to && !e.isActive('codeBlock') && !e.isActive('image') && !e.isActive('mermaid')
+        from !== to &&
+        !(e.state.selection instanceof NodeSelection) && // a whole block picked via the handle
+        !e.isActive('codeBlock') &&
+        !e.isActive('image') &&
+        !e.isActive('mermaid')
       }
     >
       <div className="bubble">
@@ -146,7 +177,20 @@ function FormatMenu({ editor }: { editor: Editor }) {
         <Btn on={s.highlight} title="Markieren" run={() => c().toggleHighlight().run()}><span className="hl">M</span></Btn>
         <Btn title="Link" run={link}>↗</Btn>
         <span className="sep" />
-        <Btn on={s.h2} title="Überschrift" run={() => c().toggleHeading({ level: 2 }).run()}>H</Btn>
+        <span className="bubble-type">
+          <Btn title="Block umwandeln" run={() => setTypeOpen((o) => !o)}>
+            {TARGETS.find((t) => t.id === s.type)?.label ?? 'Text'} ▾
+          </Btn>
+          {typeOpen && (
+            <span className="bubble-type-list">
+              {TARGETS.map((t) => (
+                <Btn key={t.id} on={t.id === s.type} title={t.label} run={() => { applyTarget(c(), t.id).run(); setTypeOpen(false) }}>
+                  <span className="bm-icon">{t.icon}</span>{t.label}
+                </Btn>
+              ))}
+            </span>
+          )}
+        </span>
         <span className="sep" />
         <Btn title="Als Lücke abdecken {{ }}" run={cloze}>Lücke</Btn>
         <Btn title="Zeile zur Karteikarte machen: Auswahl wird zur Antwort" run={toCard}>Karte</Btn>

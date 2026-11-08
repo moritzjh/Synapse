@@ -15,7 +15,7 @@ interface SlashItem extends MenuItem {
   run: (editor: Editor, range: Range, opts: SlashOptions) => void
 }
 
-const SLASH_ITEMS: SlashItem[] = [
+const ITEMS: SlashItem[] = [
   { title: 'Text', icon: '¶', keywords: 'paragraph absatz', run: (e, r) => e.chain().focus().deleteRange(r).setParagraph().run() },
   { title: 'Überschrift 1', icon: 'H1', keywords: 'h1 heading title', run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 1 }).run() },
   { title: 'Überschrift 2', icon: 'H2', keywords: 'h2 heading', run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 2 }).run() },
@@ -84,6 +84,20 @@ const SLASH_ITEMS: SlashItem[] = [
     run: (e, r) => e.chain().focus().deleteRange(r).insertContent('{{verdeckt}}').run(),
   },
 ]
+
+// Grouped like Notion's menu; `kbd` is the Markdown shortcut that does the same while typing.
+const GROUPS: [string, string[]][] = [
+  ['Grundblöcke', ['Text', 'Überschrift 1', 'Überschrift 2', 'Überschrift 3', 'Aufzählung', 'Nummerierte Liste', 'To-do-Liste', 'Aufklappbar', 'Zitat', 'Callout', 'Trennlinie', 'Code']],
+  ['Karteikarten', ['Karteikarte', 'Listen-Karte', 'Lückentext']],
+  ['Medien & Struktur', ['Bild', 'Tabelle', 'Diagramm', 'Unterseite', 'Datenbank', 'Task-Tracker']],
+]
+const KBD: Record<string, string> = {
+  'Überschrift 1': '#', 'Überschrift 2': '##', 'Überschrift 3': '###', Aufzählung: '-', 'Nummerierte Liste': '1.',
+  'To-do-Liste': '[]', Zitat: '>', Code: '```', Trennlinie: '---', Karteikarte: '>>', Lückentext: '{{ }}',
+}
+const SLASH_ITEMS: SlashItem[] = GROUPS.flatMap(([group, titles]) =>
+  titles.map((t) => ({ ...ITEMS.find((i) => i.title === t)!, group, kbd: KBD[t] })),
+)
 
 /** Notion-style "/" command menu. */
 export const SlashCommands = Extension.create<SlashOptions>({
