@@ -4,6 +4,7 @@ import { Extension, type Editor } from '@tiptap/core'
 import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
+import { t } from '../i18n'
 
 /**
  * Notion-style block handle: hovering a block shows "+" (insert a block
@@ -50,17 +51,17 @@ function textPosIn(block: Block): number | null {
 export type Target = 'text' | 'h1' | 'h2' | 'h3' | 'bullet' | 'ordered' | 'task' | 'toggle' | 'quote' | 'callout' | 'code'
 
 export const TARGETS: { id: Target; label: string; icon: string; key?: string }[] = [
-  { id: 'text', label: 'Text', icon: '¶' },
-  { id: 'h1', label: 'Überschrift 1', icon: 'H1', key: '#' },
-  { id: 'h2', label: 'Überschrift 2', icon: 'H2', key: '##' },
-  { id: 'h3', label: 'Überschrift 3', icon: 'H3', key: '###' },
-  { id: 'bullet', label: 'Aufzählung', icon: '•', key: '-' },
-  { id: 'ordered', label: 'Nummerierte Liste', icon: '1.', key: '1.' },
-  { id: 'task', label: 'To-do', icon: '☑', key: '[]' },
-  { id: 'toggle', label: 'Aufklappbar', icon: '▸' },
-  { id: 'quote', label: 'Zitat', icon: '❝', key: '>' },
-  { id: 'callout', label: 'Callout', icon: '✦' },
-  { id: 'code', label: 'Code', icon: '</>', key: '```' },
+  { id: 'text', label: t('Text'), icon: '¶' },
+  { id: 'h1', label: t('Überschrift 1'), icon: 'H1', key: '#' },
+  { id: 'h2', label: t('Überschrift 2'), icon: 'H2', key: '##' },
+  { id: 'h3', label: t('Überschrift 3'), icon: 'H3', key: '###' },
+  { id: 'bullet', label: t('Aufzählung'), icon: '•', key: '-' },
+  { id: 'ordered', label: t('Nummerierte Liste'), icon: '1.', key: '1.' },
+  { id: 'task', label: t('To-do'), icon: '☑', key: '[]' },
+  { id: 'toggle', label: t('Aufklappbar'), icon: '▸' },
+  { id: 'quote', label: t('Zitat'), icon: '❝', key: '>' },
+  { id: 'callout', label: t('Callout'), icon: '✦' },
+  { id: 'code', label: t('Code'), icon: '</>', key: '```' },
 ]
 
 function currentTarget(block: Block): Target | null {
@@ -195,32 +196,32 @@ function BlockMenu({ editor, block, x, y, close }: MenuProps) {
     <div className="block-menu" ref={ref} style={{ left: x, top: Math.max(8, top) }}>
       {textual && (
         <>
-          <div className="block-menu-label">Umwandeln in</div>
-          {TARGETS.map((t) => (
-            <button key={t.id} className={current === t.id ? 'on' : ''} onClick={run(() => turnInto(editor, block, t.id))}>
-              <span className="bm-icon">{t.icon}</span>
-              {t.label}
-              {t.key && <kbd>{t.key}</kbd>}
+          <div className="block-menu-label">{t('Umwandeln in')}</div>
+          {TARGETS.map((x) => (
+            <button key={x.id} className={current === x.id ? 'on' : ''} onClick={run(() => turnInto(editor, block, x.id))}>
+              <span className="bm-icon">{x.icon}</span>
+              {x.label}
+              {x.key && <kbd>{x.key}</kbd>}
             </button>
           ))}
           <hr />
           <button onClick={run(() => makeCard(editor, block))}>
-            <span className="bm-icon">→</span>Als Karteikarte<kbd>&gt;&gt;</kbd>
+            <span className="bm-icon">→</span>{t('Als Karteikarte')}<kbd>&gt;&gt;</kbd>
           </button>
         </>
       )}
       <button onClick={run(() => duplicate(editor, block))}>
-        <span className="bm-icon">⧉</span>Duplizieren
+        <span className="bm-icon">⧉</span>{t('Duplizieren')}
       </button>
       <button disabled={$pos.index() === 0} onClick={run(() => move(editor, block, -1))}>
-        <span className="bm-icon">↑</span>Nach oben
+        <span className="bm-icon">↑</span>{t('Nach oben')}
       </button>
       <button disabled={$pos.index() >= $pos.parent.childCount - 1} onClick={run(() => move(editor, block, 1))}>
-        <span className="bm-icon">↓</span>Nach unten
+        <span className="bm-icon">↓</span>{t('Nach unten')}
       </button>
       <hr />
       <button className="danger" onClick={run(() => remove(editor, block))}>
-        <span className="bm-icon">✕</span>Löschen
+        <span className="bm-icon">✕</span>{t('Löschen')}
       </button>
     </div>
   )
@@ -243,9 +244,9 @@ class HandleView {
     this.el = document.createElement('div')
     this.el.className = 'block-handle'
     this.el.innerHTML =
-      '<button class="bh-add" title="Klicken: Block darunter einfügen" tabindex="-1">' +
+      `<button class="bh-add" title="${t('Klicken: Block darunter einfügen')}" tabindex="-1">` +
       '<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>' +
-      '<button class="bh-drag" draggable="true" title="Ziehen: verschieben\nKlicken: Menü" tabindex="-1">' +
+      `<button class="bh-drag" draggable="true" title="${t('Ziehen: verschieben\nKlicken: Menü')}" tabindex="-1">` +
       '<svg viewBox="0 0 16 16"><circle cx="6" cy="4" r="1.1"/><circle cx="10" cy="4" r="1.1"/><circle cx="6" cy="8" r="1.1"/>' +
       '<circle cx="10" cy="8" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="10" cy="12" r="1.1"/></svg></button>'
     document.body.appendChild(this.el)

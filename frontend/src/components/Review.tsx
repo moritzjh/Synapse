@@ -2,22 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { cardApi, type Card, type Exam, type Mask, type ReviewStats } from '../api'
 import { Icon } from './Icons'
 import MathText from './MathText'
+import { locale, t } from '../i18n'
 
 type Rating = 1 | 2 | 3 | 4
 
 const RATINGS: { r: Rating; label: string; cls: string }[] = [
-  { r: 1, label: 'Nochmal', cls: 'again' },
-  { r: 2, label: 'Schwer', cls: 'hard' },
-  { r: 3, label: 'Gut', cls: 'good' },
-  { r: 4, label: 'Einfach', cls: 'easy' },
+  { r: 1, label: t('Nochmal'), cls: 'again' },
+  { r: 2, label: t('Schwer'), cls: 'hard' },
+  { r: 3, label: t('Gut'), cls: 'good' },
+  { r: 4, label: t('Einfach'), cls: 'easy' },
 ]
 
 const KIND: Record<Card['kind'], { name: string; icon: 'text' | 'reset' | 'multi' | 'title' | 'image' }> = {
-  basic: { name: 'Frage', icon: 'text' },
-  reverse: { name: 'Umgekehrt', icon: 'reset' },
-  list: { name: 'Liste', icon: 'multi' },
-  cloze: { name: 'Lückentext', icon: 'title' },
-  occlusion: { name: 'Bild', icon: 'image' },
+  basic: { name: t('Frage'), icon: 'text' },
+  reverse: { name: t('Umgekehrt'), icon: 'reset' },
+  list: { name: t('Liste'), icon: 'multi' },
+  cloze: { name: t('Lückentext'), icon: 'title' },
+  occlusion: { name: t('Bild'), icon: 'image' },
 }
 
 /** "[[Titel|Alias]]" → "Alias", "[[Titel]]" → "Titel" for display on cards. */
@@ -26,13 +27,13 @@ const long = (s: string) => (s.length > 160 || s.split('\n').length > 4 ? ' long
 
 function formatInterval(ms: number) {
   const min = ms / 60_000
-  if (min < 60) return `${Math.max(1, Math.round(min))} Min`
+  if (min < 60) return t('{n} Min', { n: Math.max(1, Math.round(min)) })
   const h = min / 60
-  if (h < 24) return `${Math.round(h)} Std`
+  if (h < 24) return t('{n} Std', { n: Math.round(h) })
   const d = h / 24
-  if (d < 30) return `${Math.round(d)} ${Math.round(d) === 1 ? 'Tag' : 'Tage'}`
-  if (d < 365) return `${Math.round(d / 30)} Mon`
-  return `${(d / 365).toFixed(1)} J`
+  if (d < 30) return Math.round(d) === 1 ? t('1 Tag') : t('{n} Tage', { n: Math.round(d) })
+  if (d < 365) return t('{n} Mon', { n: Math.round(d / 30) })
+  return t('{n} J', { n: (d / 365).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
 }
 
 /** Parts of the answer that must be revealed before rating. */
@@ -151,7 +152,7 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
           <Icon name="cards" />
           <select value={scope ? -1 : exam ?? 0} onChange={(e) => onExam(Number(e.target.value) || undefined)}>
             {scope && <option value={-1}>{scope.name}</option>}
-            <option value={0}>Alle Karten</option>
+            <option value={0}>{t('Alle Karten')}</option>
             {exams.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </label>
@@ -160,8 +161,8 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
           <span>{card ? `${done + 1} / ${total}` : `${done} / ${done}`}</span>
         </div>
         <div className="study-counts">
-          <span title="neue Karten heute"><i className="dot-new" />{stats.new}</span>
-          <span title="fällige Wiederholungen"><i className="dot-due" />{stats.due}</span>
+          <span title={t('neue Karten heute')}><i className="dot-new" />{stats.new}</span>
+          <span title={t('fällige Wiederholungen')}><i className="dot-due" />{stats.due}</span>
         </div>
       </div>
 
@@ -177,10 +178,10 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
             >
               <header className="fc-meta">
                 <span className="fc-type"><Icon name={KIND[card.kind].icon} /> {KIND[card.kind].name}</span>
-                <button className="fc-note" onClick={() => onOpenNote(card.note_id)} title="Notiz öffnen">
-                  {card.note_title.trim() || 'Ohne Titel'}
+                <button className="fc-note" onClick={() => onOpenNote(card.note_id)} title={t('Notiz öffnen')}>
+                  {card.note_title.trim() || t('Ohne Titel')}
                 </button>
-                <span className={`fc-state ${card.state === 0 ? 'new' : ''}`}>{card.state === 0 ? 'Neu' : card.lapses ? `${card.lapses}× vergessen` : 'Wiederholung'}</span>
+                <span className={`fc-state ${card.state === 0 ? 'new' : ''}`}>{card.state === 0 ? t('Neu') : card.lapses ? t('{n}× vergessen', { n: card.lapses }) : t('Wiederholung')}</span>
               </header>
 
               <CardBody card={card} revealed={revealed} allRevealed={allRevealed} reveal={reveal} />
@@ -191,12 +192,12 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
             {!allRevealed ? (
               <div className="reveal-row">
                 <button className="reveal-btn" onClick={revealNext}>
-                  {parts > 1 ? <>Aufdecken <span className="reveal-count">{revealed.size + 1}/{parts}</span></> : 'Antwort zeigen'}
-                  <kbd>Leertaste</kbd>
+                  {parts > 1 ? <>{t('Aufdecken')} <span className="reveal-count">{revealed.size + 1}/{parts}</span></> : t('Antwort zeigen')}
+                  <kbd>{t('Leertaste')}</kbd>
                 </button>
                 {parts > 1 && (
                   <button className="link-btn" onClick={() => setRevealed(new Set(Array.from({ length: parts }, (_, i) => i)))}>
-                    alle
+                    {t('alle')}
                   </button>
                 )}
               </div>
@@ -247,7 +248,7 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
             return revealed.has(g) ? (
               <span key={i} className="gap open"><MathText text={clean(s.cloze)} /></span>
             ) : (
-              <button key={i} className={`gap ${g === revealed.size ? 'next' : ''}`} onClick={() => reveal(g)} title="Aufdecken">
+              <button key={i} className={`gap ${g === revealed.size ? 'next' : ''}`} onClick={() => reveal(g)} title={t('Aufdecken')}>
                 <span><MathText text={clean(s.cloze)} /></span>
               </button>
             )
@@ -268,7 +269,7 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
               {revealed.has(i) ? (
                 <span className="fc-item"><MathText text={clean(item)} /></span>
               ) : (
-                <button className="fc-cover" onClick={() => reveal(i)} aria-label={`Punkt ${i + 1} aufdecken`} />
+                <button className="fc-cover" onClick={() => reveal(i)} aria-label={t('Punkt {n} aufdecken', { n: i + 1 })} />
               )}
             </li>
           ))}
@@ -304,10 +305,10 @@ function Summary({ ratings, examName, onAgain }: { ratings: Rating[]; examName?:
     return (
       <div className="study-empty">
         <div className="study-empty-mark"><Icon name="cards" /></div>
-        <h2>Alles gelernt{examName ? ` für ${examName}` : ''}</h2>
+        <h2>{examName ? t('Alles gelernt für {name}', { name: examName }) : t('Alles gelernt')}</h2>
         <p>
-          Neue Karten entstehen direkt beim Schreiben: <code>Frage &gt;&gt; Antwort</code>, <code>Begriff :: Definition</code>,{' '}
-          <code>{'{{Lücke}}'}</code>, eine Liste unter <code>Frage &gt;&gt;</code> oder ein abgedecktes Bild.
+          {t('Neue Karten entstehen direkt beim Schreiben:')} <code>{t('Frage >> Antwort')}</code>, <code>{t('Begriff :: Definition')}</code>,{' '}
+          <code>{'{{' + t('Lückenwort') + '}}'}</code>, {t('eine Liste unter')} <code>{t('Frage >>')}</code> {t('oder ein abgedecktes Bild.')}
         </p>
       </div>
     )
@@ -318,7 +319,7 @@ function Summary({ ratings, examName, onAgain }: { ratings: Rating[]; examName?:
   let offset = 0
   return (
     <div className="study-summary">
-      <svg viewBox="0 0 140 140" width="160" height="160" className="summary-ring" role="img" aria-label={`${known}% gewusst`}>
+      <svg viewBox="0 0 140 140" width="160" height="160" className="summary-ring" role="img" aria-label={t('{n}% gewusst', { n: known })}>
         <circle cx="70" cy="70" r={R} className="ring-track" />
         {RATINGS.map(({ cls }, i) => {
           const len = (counts[i] / n) * C
@@ -337,15 +338,15 @@ function Summary({ ratings, examName, onAgain }: { ratings: Rating[]; examName?:
           return counts[i] ? el : null
         })}
         <text x="70" y="68" textAnchor="middle" className="ring-big">{known}%</text>
-        <text x="70" y="88" textAnchor="middle" className="ring-small">gewusst</text>
+        <text x="70" y="88" textAnchor="middle" className="ring-small">{t('gewusst')}</text>
       </svg>
-      <h2>{n} {n === 1 ? 'Karte' : 'Karten'} gelernt{examName ? ` · ${examName}` : ''}</h2>
+      <h2>{n === 1 ? t('1 Karte gelernt') : t('{n} Karten gelernt', { n })}{examName ? ` · ${examName}` : ''}</h2>
       <div className="summary-legend">
         {RATINGS.map(({ label, cls }, i) => (
           <span key={cls} className={cls}><i />{label} <b>{counts[i]}</b></span>
         ))}
       </div>
-      <button className="reveal-btn" onClick={onAgain}>Nach neuen Karten suchen</button>
+      <button className="reveal-btn" onClick={onAgain}>{t('Nach neuen Karten suchen')}</button>
     </div>
   )
 }

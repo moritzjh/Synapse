@@ -4,6 +4,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { api, type NoteSummary } from '../api'
 import { toDoc } from './doc'
+import { t } from '../i18n'
 
 export interface SyntaxOptions {
   onOpenLink: (title: string) => void
@@ -142,7 +143,7 @@ function decorate(state: EditorState, notes: NoteSummary[], selfTitle: string): 
         Decoration.inline(at[visibleStart], at[e - 2], {
           class: resolved ? 'wikilink' : 'wikilink unresolved',
           'data-target': target,
-          title: resolved ? '' : `„${target}“ anlegen`,
+          title: resolved ? '' : t('„{target}“ anlegen', { target }),
         }),
       )
     }
@@ -194,7 +195,7 @@ function decorate(state: EditorState, notes: NoteSummary[], selfTitle: string): 
         } else {
           hide(sFrom, sTo)
           decos.push(
-            Decoration.widget(sFrom, () => pill(isList ? '↓' : symbol, isList ? 'Listen-Karte' : kind === 'basic' ? 'Karteikarte' : 'Karte in beide Richtungen'), {
+            Decoration.widget(sFrom, () => pill(isList ? '↓' : symbol, isList ? t('Listen-Karte') : kind === 'basic' ? t('Karteikarte') : t('Karte in beide Richtungen')), {
               side: -1,
               key: `pill-${card}`,
             }),
@@ -236,7 +237,7 @@ function showSuggest(el: HTMLElement, view: EditorView) {
   const r = el.getBoundingClientRect()
   const btn = document.createElement('button')
   btn.className = 'link-suggest-btn'
-  btn.textContent = `↗ Mit „${target}“ verlinken`
+  btn.textContent = `↗ ${t('Mit „{target}“ verlinken', { target })}`
   btn.style.left = `${Math.min(r.left, window.innerWidth - 260)}px`
   btn.style.top = `${r.bottom + 4}px`
   btn.onmouseenter = () => clearTimeout(suggestTimer)
@@ -287,7 +288,7 @@ function showPreview(link: HTMLElement, notes: NoteSummary[]) {
     h.textContent = note.title
     const p = document.createElement('div')
     p.className = 'link-preview-body'
-    p.textContent = text || 'Leere Notiz'
+    p.textContent = text || t('Leere Notiz')
     previewEl.append(h, p)
     previewEl.style.left = `${Math.min(r.left, window.innerWidth - 340)}px`
     previewEl.style.top = `${r.bottom + 8}px`

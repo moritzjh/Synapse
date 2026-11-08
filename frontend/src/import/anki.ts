@@ -2,6 +2,7 @@ import { unzipSync } from 'fflate'
 import { decompress } from 'fzstd'
 import initSqlJs, { type Database } from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
+import { t } from '../i18n'
 
 /**
  * Reads an Anki export (.apkg / .colpkg) in the browser – both the legacy
@@ -157,7 +158,7 @@ export const clozeToSynapse = (text: string) => text.replace(/\{\{c\d+::(.*?)(?:
 export async function readAnkiPackage(file: File): Promise<AnkiPackage> {
   const files = unzipSync(new Uint8Array(await file.arrayBuffer()))
   const colName = ['collection.anki21b', 'collection.anki21', 'collection.anki2'].find((n) => files[n])
-  if (!colName) throw new Error('Keine Anki-Sammlung in der Datei gefunden (.apkg oder .colpkg erwartet).')
+  if (!colName) throw new Error(t('Keine Anki-Sammlung in der Datei gefunden (.apkg oder .colpkg erwartet).'))
   const SQL = await initSqlJs({ locateFile: () => wasmUrl })
   const db = new SQL.Database(unz(files[colName]))
   try {

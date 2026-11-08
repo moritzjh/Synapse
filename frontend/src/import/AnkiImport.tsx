@@ -3,6 +3,12 @@ import { api } from '../api'
 import { uploadImage } from '../editor/upload'
 import { Icon } from '../components/Icons'
 import type { AnkiCard, AnkiPackage } from './anki'
+import { t } from '../i18n'
+
+/** Fills {placeholders} in a translated sentence with React nodes. */
+function fill(text: string, parts: Record<string, React.ReactNode>): React.ReactNode[] {
+  return text.split(/\{(\w+)\}/).map((s, i) => (i % 2 ? <span key={i}>{parts[s]}</span> : s))
+}
 
 /** Cards per Synapse note, so huge decks stay pleasant to open. */
 const PER_NOTE = 150
@@ -55,18 +61,18 @@ export default function AnkiImport({ onClose, onDone }: Props) {
 
   const run = async (file: File) => {
     try {
-      setPhase({ step: 'work', label: 'Lese Anki-Datei…', done: 0, total: 1 })
+      setPhase({ step: 'work', label: t('Lese Anki-Datei…'), done: 0, total: 1 })
       const { readAnkiPackage } = await import('./anki') // sql.js + zstd only load when needed
       const pkg: AnkiPackage = await readAnkiPackage(file)
       const total = pkg.decks.reduce((n, d) => n + d.cards.length, 0)
-      if (!total) throw new Error('Die Datei enthält keine Karten.')
+      if (!total) throw new Error(t('Die Datei enthält keine Karten.'))
 
       // upload the images the cards show
       const wanted = new Set(pkg.decks.flatMap((d) => d.cards.flatMap((c) => c.images)))
       const images = new Map<string, string>()
       let i = 0
       for (const name of wanted) {
-        setPhase({ step: 'work', label: 'Lade Bilder hoch…', done: i++, total: wanted.size })
+        setPhase({ step: 'work', label: t('Lade Bilder hoch…'), done: i++, total: wanted.size })
         const data = pkg.media.get(name)
         const ext = name.split('.').pop()?.toLowerCase() ?? ''
         if (!data || !MIME[ext]) continue
@@ -87,7 +93,7 @@ export default function AnkiImport({ onClose, onDone }: Props) {
           await api.createNote(title, JSON.stringify(doc), { folder })
           notes++
           done += chunk.length
-          setPhase({ step: 'work', label: `Lege Karten an: ${path.join(' › ')}`, done, total })
+          setPhase({ step: 'work', label: t('Lege Karten an: {path}', { path: path.join(' › ') }), done, total })
         }
       }
       setPhase({ step: 'done', decks: pkg.decks.length, notes, cards: total, images: images.size })
@@ -100,9 +106,9 @@ export default function AnkiImport({ onClose, onDone }: Props) {
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && phase.step !== 'work' && onClose()}>
       <div className="modal import-modal">
         <header>
-          <h2>Aus Anki importieren</h2>
+          <h2>{t('Aus Anki importieren')}</h2>
           {phase.step !== 'work' && (
-            <button className="icon-btn" onClick={onClose} title="Schließen"><Icon name="x" /></button>
+            <button className="icon-btn" onClick={onClose} title={t('Schließen')}><Icon name="x" /></button>
           )}
         </header>
 
@@ -123,15 +129,21 @@ export default function AnkiImport({ onClose, onDone }: Props) {
               }}
             >
               <Icon name="import" />
-              <b>.apkg oder .colpkg hierher ziehen</b>
-              <span>oder klicken, um eine Datei zu wählen</span>
+              <b>{t('.apkg oder .colpkg hierher ziehen')}</b>
+              <span>{t('oder klicken, um eine Datei zu wählen')}</span>
               <input type="file" accept=".apkg,.colpkg" onChange={(e) => e.target.files?.[0] && run(e.target.files[0])} hidden />
             </label>
             <ul className="import-notes">
-              <li>Jeder Stapel wird zu einer Notiz im Ordner <code>Anki/</code>, Unterstapel zu Unterseiten.</li>
-              <li>Basis-Karten werden zu <code>Frage &gt;&gt; Antwort</code>, „mit Rückrichtung" zu <code>::</code>, Lückentexte zu <code>{'{{…}}'}</code>.</li>
-              <li>Bilder und MathJax-Formeln werden übernommen, Audio nicht. Alle Karten starten als neu.</li>
-              <li>In Anki: Datei → Exportieren → „Anki Deck Package (.apkg)".</li>
+              <li>{fill(t('Jeder Stapel wird zu einer Notiz im Ordner {folder}, Unterstapel zu Unterseiten.'), { folder: <code>Anki/</code> })}</li>
+              <li>
+                {fill(t('Basis-Karten werden zu {basic}, „mit Rückrichtung" zu {reverse}, Lückentexte zu {cloze}.'), {
+                  basic: <code>{t('Frage >> Antwort')}</code>,
+                  reverse: <code>::</code>,
+                  cloze: <code>{'{{…}}'}</code>,
+                })}
+              </li>
+              <li>{t('Bilder und MathJax-Formeln werden übernommen, Audio nicht. Alle Karten starten als neu.')}</li>
+              <li>{t('In Anki: Datei → Exportieren → „Anki Deck Package (.apkg)".')}</li>
             </ul>
           </>
         )}
@@ -147,18 +159,21 @@ export default function AnkiImport({ onClose, onDone }: Props) {
         {phase.step === 'done' && (
           <div className="import-result">
             <p>
-              <b>{phase.cards} Karten</b> aus {phase.decks} {phase.decks === 1 ? 'Stapel' : 'Stapeln'} importiert – in {phase.notes}{' '}
-              {phase.notes === 1 ? 'Notiz' : 'Notizen'}
-              {phase.images ? `, mit ${phase.images} Bildern` : ''}.
+              {fill(t('{cards} aus {decks} importiert – in {notes}{images}.'), {
+                cards: <b>{phase.cards === 1 ? t('1 Karte') : t('{n} Karten', { n: phase.cards })}</b>,
+                decks: phase.decks === 1 ? t('1 Stapel') : t('{n} Stapeln', { n: phase.decks }),
+                notes: phase.notes === 1 ? t('1 Notiz') : t('{n} Notizen', { n: phase.notes }),
+                images: !phase.images ? '' : phase.images === 1 ? t(', mit 1 Bild') : t(', mit {n} Bildern', { n: phase.images }),
+              })}
             </p>
-            <button className="btn primary" onClick={() => onDone(ROOT)}>Ordner öffnen</button>
+            <button className="btn primary" onClick={() => onDone(ROOT)}>{t('Ordner öffnen')}</button>
           </div>
         )}
 
         {phase.step === 'error' && (
           <div className="import-result">
             <p className="error-text">{phase.message}</p>
-            <button className="btn" onClick={() => setPhase({ step: 'pick' })}>Andere Datei wählen</button>
+            <button className="btn" onClick={() => setPhase({ step: 'pick' })}>{t('Andere Datei wählen')}</button>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { InputRule, type Editor } from '@tiptap/core'
 import { BlockMath, InlineMath } from '@tiptap/extension-mathematics'
 import katex from 'katex'
+import { t } from '../i18n'
 
 /**
  * LaTeX formulas, written like in Obsidian:
@@ -29,7 +30,7 @@ export function editMath(editor: Editor, pos: number, block: boolean) {
   preview.className = 'math-edit-preview'
   const hint = document.createElement('div')
   hint.className = 'math-edit-hint'
-  hint.textContent = block ? 'Strg+Enter übernehmen · Esc abbrechen' : 'Enter übernehmen · Esc abbrechen'
+  hint.textContent = block ? t('Strg+Enter übernehmen · Esc abbrechen') : t('Enter übernehmen · Esc abbrechen')
   el.append(input, preview, hint)
   document.body.appendChild(el)
   el.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 380))}px`

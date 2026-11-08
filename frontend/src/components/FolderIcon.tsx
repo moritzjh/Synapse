@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { FolderMeta } from '../api'
 import { Icon } from './Icons'
+import { t } from '../i18n'
 
 /** Folder colours; the CSS variables adapt them to light and dark mode. */
 export const FOLDER_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const
@@ -53,7 +54,7 @@ export function FolderPicker({ meta, onChange, onClose }: PickerProps) {
 
   return (
     <div className="folder-picker" ref={ref}>
-      <div className="fp-label">Farbe</div>
+      <div className="fp-label">{t('Farbe')}</div>
       <div className="fp-colors">
         {FOLDER_COLORS.map((c) => (
           <button
@@ -67,9 +68,9 @@ export function FolderPicker({ meta, onChange, onClose }: PickerProps) {
         ))}
       </div>
       <div className="fp-label">
-        Symbol
+        {t('Symbol')}
         {icon && (
-          <button className="link-btn" onClick={() => onChange({ color, icon: '' })}>entfernen</button>
+          <button className="link-btn" onClick={() => onChange({ color, icon: '' })}>{t('entfernen')}</button>
         )}
       </div>
       <div className="fp-emojis">
@@ -81,7 +82,7 @@ export function FolderPicker({ meta, onChange, onClose }: PickerProps) {
       </div>
       <input
         className="fp-custom"
-        placeholder="Eigenes Emoji einfügen…"
+        placeholder={t('Eigenes Emoji einfügen…')}
         maxLength={8}
         onKeyDown={(e) => {
           const v = (e.target as HTMLInputElement).value.trim()

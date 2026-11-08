@@ -3,6 +3,7 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { common, createLowlight } from 'lowlight'
+import { t } from '../i18n'
 
 export const lowlight = createLowlight(common)
 
@@ -29,7 +30,7 @@ const LANGUAGES: [string, string][] = [
   ['xml', 'HTML/XML'],
   ['css', 'CSS'],
   ['markdown', 'Markdown'],
-  ['plaintext', 'Text'],
+  ['plaintext', t('Text')],
 ]
 const LABEL = Object.fromEntries(LANGUAGES)
 const AUTO_SUBSET = LANGUAGES.map(([id]) => id).filter((id) => id !== 'plaintext')
@@ -66,7 +67,7 @@ function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
           className="code-lang"
           value={language ?? ''}
           onChange={(e) => updateAttributes({ language: e.target.value || null })}
-          title="Sprache"
+          title={t('Sprache')}
         >
           <option value="">{detected ? `Auto · ${LABEL[detected] ?? detected}` : 'Auto'}</option>
           {LANGUAGES.map(([id, label]) => (
@@ -74,8 +75,8 @@ function CodeBlockView({ node, updateAttributes }: ReactNodeViewProps) {
           ))}
           {language && !LABEL[language] && <option value={language}>{language}</option>}
         </select>
-        <button className="code-copy" onClick={copy} title="Code kopieren">
-          {copied ? 'Kopiert' : 'Kopieren'}
+        <button className="code-copy" onClick={copy} title={t('Code kopieren')}>
+          {copied ? t('Kopiert') : t('Kopieren')}
         </button>
       </div>
       <pre className={shown ? `language-${shown}` : undefined}>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { uid } from '../doc'
 import { Icon } from '../../components/Icons'
 import Chart from './Chart'
+import { locale, t } from '../../i18n'
 import { compile, FUNCTION_NAMES } from './formula'
 import { displayValue, emptyDatabase, FILTER_OPS, newProperty, newView, numericValue, OP_LABEL, visibleRows } from './model'
 import { COLORS, TYPE_ICON, TYPE_LABEL, type Cell, type Color, type DbAttrs, type Filter, type Option, type Property, type PropType, type Row, type View } from './types'
@@ -80,7 +81,7 @@ function DatabaseView({ node, updateAttributes, deleteNode, editor }: ReactNodeV
         <input
           className="db-title"
           value={db.title}
-          placeholder="Ohne Titel"
+          placeholder={t('Ohne Titel')}
           readOnly={!editable}
           onChange={(e) => update((d) => void (d.title = e.target.value))}
         />
@@ -88,10 +89,10 @@ function DatabaseView({ node, updateAttributes, deleteNode, editor }: ReactNodeV
           {editable && (
             <>
               <button className={view.filters.length ? 'on' : ''} onClick={(e) => open({ kind: 'filter' }, e)}>
-                Filter{view.filters.length ? ` · ${view.filters.length}` : ''}
+                {t('Filter')}{view.filters.length ? ` · ${view.filters.length}` : ''}
               </button>
-              <button className={view.sort ? 'on' : ''} onClick={(e) => open({ kind: 'sort' }, e)}>Sortieren</button>
-              <button className="db-new" onClick={() => addRow()}>Neu</button>
+              <button className={view.sort ? 'on' : ''} onClick={(e) => open({ kind: 'sort' }, e)}>{t('Sortieren')}</button>
+              <button className="db-new" onClick={() => addRow()}>{t('Neu')}</button>
             </>
           )}
         </div>
@@ -105,7 +106,7 @@ function DatabaseView({ node, updateAttributes, deleteNode, editor }: ReactNodeV
             onClick={() => setViewId(v.id)}
             onDoubleClick={() => {
               if (!editable) return
-              const name = prompt('Name der Ansicht', v.name)
+              const name = prompt(t('Name der Ansicht'), v.name)
               if (name) update((d) => void (d.views.find((x) => x.id === v.id)!.name = name))
             }}
           >
@@ -114,22 +115,22 @@ function DatabaseView({ node, updateAttributes, deleteNode, editor }: ReactNodeV
           </button>
         ))}
         {editable && (
-          <button className="db-tab-add" title="Ansicht hinzufügen" onClick={(e) => open({ kind: 'addView' }, e)}>+</button>
+          <button className="db-tab-add" title={t('Ansicht hinzufügen')} onClick={(e) => open({ kind: 'addView' }, e)}>+</button>
         )}
         {editable && (
           <span className="db-tab-end">
             {db.views.length > 1 && (
               <button
-                title="Ansicht löschen"
+                title={t('Ansicht löschen')}
                 onClick={() => {
                   update((d) => void (d.views = d.views.filter((x) => x.id !== view.id)))
                   setViewId(db.views.find((x) => x.id !== view.id)?.id)
                 }}
               >
-                Ansicht entfernen
+                {t('Ansicht entfernen')}
               </button>
             )}
-            <button title="Datenbank löschen" onClick={() => confirm('Datenbank löschen?') && deleteNode()}>Löschen</button>
+            <button title={t('Datenbank löschen')} onClick={() => confirm(t('Datenbank löschen?')) && deleteNode()}>{t('Löschen')}</button>
           </span>
         )}
       </div>
@@ -178,7 +179,7 @@ function CellView({ ctx, row, prop }: { ctx: Ctx; row: Row; prop: Property }) {
           className={`cell-input ${prop.type === 'title' ? 'title' : ''}`}
           value={typeof v === 'string' ? v : ''}
           readOnly={ro}
-          placeholder={prop.type === 'title' ? 'Ohne Titel' : ''}
+          placeholder={prop.type === 'title' ? t('Ohne Titel') : ''}
           onChange={(e) => set(e.target.value)}
         />
       )
@@ -260,9 +261,9 @@ function TableView(ctx: Ctx) {
             {editable && (
               <th className="db-add-col">
                 <button
-                  title="Eigenschaft hinzufügen"
+                  title={t('Eigenschaft hinzufügen')}
                   onClick={(e) => {
-                    const p = newProperty('text', 'Eigenschaft')
+                    const p = newProperty('text', t('Eigenschaft'))
                     ctx.update((d) => void d.properties.push(p))
                     ctx.open({ kind: 'prop', prop: p.id }, e)
                   }}
@@ -281,7 +282,7 @@ function TableView(ctx: Ctx) {
                   {i === 0 && editable && (
                     <button
                       className="row-del"
-                      title="Zeile löschen"
+                      title={t('Zeile löschen')}
                       onClick={() => ctx.update((d) => void (d.rows = d.rows.filter((x) => x.id !== r.id)))}
                     >
                       ×
@@ -299,9 +300,9 @@ function TableView(ctx: Ctx) {
             {db.properties.map((p, i) => (
               <td key={p.id} className={`t-${p.type}`}>
                 {i === 0 && editable ? (
-                  <button className="db-add-row" onClick={() => ctx.addRow()}>+ Neue Zeile</button>
+                  <button className="db-add-row" onClick={() => ctx.addRow()}>{t('+ Neue Zeile')}</button>
                 ) : i === 0 ? (
-                  <span className="db-count">{rows.length} Einträge</span>
+                  <span className="db-count">{rows.length === 1 ? t('1 Eintrag') : t('{n} Einträge', { n: rows.length })}</span>
                 ) : sums[i] !== null ? (
                   <span className="db-sum">Σ {Math.round(sums[i]! * 100) / 100}</span>
                 ) : null}
@@ -320,7 +321,7 @@ function BoardView(ctx: Ctx) {
   const groupable = db.properties.filter((p) => p.type === 'select' || p.type === 'status')
   const group = db.properties.find((p) => p.id === view.groupBy) ?? groupable[0]
   const [over, setOver] = useState<string | null>(null)
-  if (!group) return <div className="db-hint">Für ein Board braucht die Datenbank eine Status- oder Auswahl-Eigenschaft.</div>
+  if (!group) return <div className="db-hint">{t('Für ein Board braucht die Datenbank eine Status- oder Auswahl-Eigenschaft.')}</div>
   const title = db.properties.find((p) => p.type === 'title') ?? db.properties[0]
   const columns: { id: string | null; option?: Option }[] = [...(group.options ?? []).map((o) => ({ id: o.id, option: o })), { id: null }]
   const shown = db.properties.filter((p) => p.id !== title.id && p.id !== group.id)
@@ -329,7 +330,7 @@ function BoardView(ctx: Ctx) {
     <>
       {editable && groupable.length > 1 && (
         <div className="db-config">
-          Gruppieren nach
+          {t('Gruppieren nach')}
           <select value={group.id} onChange={(e) => ctx.updateView((v) => void (v.groupBy = e.target.value))}>
             {groupable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -357,7 +358,7 @@ function BoardView(ctx: Ctx) {
               }}
             >
               <div className="board-head">
-                {col.option ? <Tag option={col.option} /> : <span className="tag c-gray">Ohne {group.name}</span>}
+                {col.option ? <Tag option={col.option} /> : <span className="tag c-gray">{t('Ohne {name}', { name: group.name })}</span>}
                 <span className="board-count">{items.length}</span>
               </div>
               {items.map((r) => (
@@ -368,7 +369,7 @@ function BoardView(ctx: Ctx) {
                   onDragStart={(e) => e.dataTransfer.setData('application/x-db-row', r.id)}
                   onClick={(e) => ctx.open({ kind: 'row', row: r.id }, e)}
                 >
-                  <div className="board-card-title">{(r.cells[title.id] as string) || 'Ohne Titel'}</div>
+                  <div className="board-card-title">{(r.cells[title.id] as string) || t('Ohne Titel')}</div>
                   <div className="board-card-props">
                     {shown.map((p) => {
                       if (p.type === 'select' || p.type === 'status' || p.type === 'multi_select') {
@@ -379,14 +380,16 @@ function BoardView(ctx: Ctx) {
                           return o ? <Tag key={p.id + id} option={o} /> : null
                         })
                       }
-                      const t = displayValue(db, r, p)
-                      if (!t || t === '✗') return null
+                      const text = displayValue(db, r, p)
+                      if (!text || text === '✗') return null
                       const labelled = p.type === 'number' || p.type === 'formula' || p.type === 'text'
                       return (
                         <span key={p.id} className="board-prop" title={p.name}>
                           {p.type === 'date' && <Icon name="calendar" />}
                           {labelled && <span className="board-prop-name">{p.name}</span>}
-                          {p.type === 'date' ? new Date(t.split('.').reverse().join('-')).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' }) : t}
+                          {p.type === 'date' && typeof r.cells[p.id] === 'string'
+                            ? new Date((r.cells[p.id] as string).slice(0, 10) + 'T00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+                            : text}
                         </span>
                       )
                     })}
@@ -394,7 +397,7 @@ function BoardView(ctx: Ctx) {
                 </div>
               ))}
               {editable && (
-                <button className="board-add" onClick={() => ctx.addRow(col.id ? { [group.id]: col.id } : {})}>+ Neu</button>
+                <button className="board-add" onClick={() => ctx.addRow(col.id ? { [group.id]: col.id } : {})}>{t('+ Neu')}</button>
               )}
             </div>
           )
@@ -414,15 +417,15 @@ function ChartView(ctx: Ctx) {
       {editable && (
         <div className="db-config">
           <select value={cfg.kind} onChange={(e) => set({ kind: e.target.value as typeof cfg.kind })}>
-            <option value="bar">Balken</option>
-            <option value="line">Linie</option>
-            <option value="donut">Ring</option>
+            <option value="bar">{t('Balken')}</option>
+            <option value="line">{t('Linie')}</option>
+            <option value="donut">{t('Ring')}</option>
           </select>
-          nach
+          {t('nach')}
           <select value={cfg.x} onChange={(e) => set({ x: e.target.value })}>
             {db.properties.filter((p) => p.type !== 'formula').map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          Wert
+          {t('Wert')}
           <select
             value={cfg.y ? `${cfg.agg}:${cfg.y}` : 'count'}
             onChange={(e) => {
@@ -430,10 +433,10 @@ function ChartView(ctx: Ctx) {
               set(e.target.value === 'count' ? { agg: 'count', y: undefined } : { agg: agg as 'sum' | 'avg', y })
             }}
           >
-            <option value="count">Anzahl</option>
+            <option value="count">{t('Anzahl')}</option>
             {numeric.flatMap((p) => [
-              <option key={'s' + p.id} value={`sum:${p.id}`}>Summe {p.name}</option>,
-              <option key={'a' + p.id} value={`avg:${p.id}`}>Ø {p.name}</option>,
+              <option key={'s' + p.id} value={`sum:${p.id}`}>{t('Summe {name}', { name: p.name })}</option>,
+              <option key={'a' + p.id} value={`avg:${p.id}`}>{t('Ø {name}', { name: p.name })}</option>,
             ])}
           </select>
         </div>
@@ -461,17 +464,17 @@ function Popover({ state, onViewAdded, ...ctx }: Ctx & { state: Pop; onViewAdded
     case 'addView':
       return (
         <div className="pop-list">
-          {(['table', 'board', 'chart'] as const).map((t) => (
+          {(['table', 'board', 'chart'] as const).map((type) => (
             <button
-              key={t}
+              key={type}
               onClick={() => {
-                const v = newView(t, ctx.db)
+                const v = newView(type, ctx.db)
                 ctx.update((d) => void d.views.push(v))
                 onViewAdded(v.id)
                 ctx.close()
               }}
             >
-              <Icon name={t} /> {t === 'table' ? 'Tabelle' : t === 'board' ? 'Board' : 'Diagramm'}
+              <Icon name={type} /> {type === 'table' ? t('Tabelle') : type === 'board' ? t('Board') : t('Grafik')}
             </button>
           ))}
         </div>
@@ -491,25 +494,25 @@ function PropertyMenu({ ctx, propId }: { ctx: Ctx; propId: string }) {
       formulaError = (e as Error).message
     }
   }
-  const types = (Object.keys(TYPE_LABEL) as PropType[]).filter((t) => t !== 'title' || prop.type === 'title')
+  const types = (Object.keys(TYPE_LABEL) as PropType[]).filter((ty) => ty !== 'title' || prop.type === 'title')
   return (
     <div className="pop-form">
       <input className="pop-input" value={prop.name} autoFocus onChange={(e) => edit((p) => void (p.name = e.target.value))} />
       {prop.type !== 'title' && (
         <label>
-          Typ
+          {t('Typ')}
           <select
             value={prop.type}
             onChange={(e) =>
               edit((p) => {
-                const t = e.target.value as PropType
-                p.type = t
-                if ((t === 'select' || t === 'multi_select' || t === 'status') && !p.options) p.options = newProperty(t, '').options
-                if (t === 'formula' && p.formula === undefined) p.formula = ''
+                const ty = e.target.value as PropType
+                p.type = ty
+                if ((ty === 'select' || ty === 'multi_select' || ty === 'status') && !p.options) p.options = newProperty(ty, '').options
+                if (ty === 'formula' && p.formula === undefined) p.formula = ''
               })
             }
           >
-            {types.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+            {types.map((ty) => <option key={ty} value={ty}>{TYPE_LABEL[ty]}</option>)}
           </select>
         </label>
       )}
@@ -518,14 +521,14 @@ function PropertyMenu({ ctx, propId }: { ctx: Ctx; propId: string }) {
           <textarea
             className="pop-formula"
             value={prop.formula ?? ''}
-            placeholder={'if(prop("Erledigt"), "✓", "")'}
+            placeholder={`if(prop("${t('Erledigt')}"), "✓", "")`}
             spellCheck={false}
             onChange={(e) => edit((p) => void (p.formula = e.target.value))}
           />
           <div className={`pop-help ${formulaError ? 'err' : ''}`}>
-            {formulaError || `Eigenschaften: ${ctx.db.properties.filter((p) => p.id !== propId).map((p) => `prop("${p.name}")`).join(', ')}`}
+            {formulaError || t('Eigenschaften: {list}', { list: ctx.db.properties.filter((p) => p.id !== propId).map((p) => `prop("${p.name}")`).join(', ') })}
           </div>
-          <div className="pop-help">Funktionen: {FUNCTION_NAMES.join(', ')}</div>
+          <div className="pop-help">{t('Funktionen: {list}', { list: FUNCTION_NAMES.join(', ') })}</div>
         </>
       )}
       {(prop.type === 'select' || prop.type === 'multi_select' || prop.type === 'status') && (
@@ -534,7 +537,7 @@ function PropertyMenu({ ctx, propId }: { ctx: Ctx; propId: string }) {
             <div key={o.id} className="pop-option">
               <button
                 className={`dot c-${o.color}`}
-                title="Farbe wechseln"
+                title={t('Farbe wechseln')}
                 onClick={() =>
                   edit((p) => {
                     const x = p.options!.find((y) => y.id === o.id)!
@@ -543,20 +546,20 @@ function PropertyMenu({ ctx, propId }: { ctx: Ctx; propId: string }) {
                 }
               />
               <input value={o.name} onChange={(e) => edit((p) => void (p.options!.find((y) => y.id === o.id)!.name = e.target.value))} />
-              <button title="Entfernen" onClick={() => edit((p) => void (p.options = p.options!.filter((y) => y.id !== o.id)))}>×</button>
+              <button title={t('Entfernen')} onClick={() => edit((p) => void (p.options = p.options!.filter((y) => y.id !== o.id)))}>×</button>
             </div>
           ))}
           <button
             className="pop-link"
-            onClick={() => edit((p) => void (p.options = [...(p.options ?? []), { id: uid(), name: 'Neu', color: COLORS[(p.options?.length ?? 0) % COLORS.length] }]))}
+            onClick={() => edit((p) => void (p.options = [...(p.options ?? []), { id: uid(), name: t('Neu'), color: COLORS[(p.options?.length ?? 0) % COLORS.length] }]))}
           >
-            + Option
+            {t('+ Option')}
           </button>
         </div>
       )}
       <div className="pop-row">
-        <button onClick={() => (ctx.updateView((v) => void (v.sort = { prop: propId, dir: 'asc' })), ctx.close())}>↑ Aufsteigend</button>
-        <button onClick={() => (ctx.updateView((v) => void (v.sort = { prop: propId, dir: 'desc' })), ctx.close())}>↓ Absteigend</button>
+        <button onClick={() => (ctx.updateView((v) => void (v.sort = { prop: propId, dir: 'asc' })), ctx.close())}>{t('↑ Aufsteigend')}</button>
+        <button onClick={() => (ctx.updateView((v) => void (v.sort = { prop: propId, dir: 'desc' })), ctx.close())}>{t('↓ Absteigend')}</button>
       </div>
       {prop.type !== 'title' && (
         <button
@@ -572,7 +575,7 @@ function PropertyMenu({ ctx, propId }: { ctx: Ctx; propId: string }) {
             ctx.close()
           }}
         >
-          Eigenschaft löschen
+          {t('Eigenschaft löschen')}
         </button>
       )}
     </div>
@@ -615,7 +618,7 @@ function OptionPicker({ ctx, rowId, propId }: { ctx: Ctx; rowId: string; propId:
       <input
         className="pop-input"
         autoFocus
-        placeholder="Suchen oder anlegen"
+        placeholder={t('Suchen oder anlegen')}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
@@ -633,7 +636,7 @@ function OptionPicker({ ctx, rowId, propId }: { ctx: Ctx; rowId: string; propId:
         </button>
       ))}
       {q.trim() && !options.some((o) => o.name.toLowerCase() === q.trim().toLowerCase()) && (
-        <button onClick={create}>+ „{q.trim()}“ anlegen</button>
+        <button onClick={create}>{t('+ „{name}“ anlegen', { name: q.trim() })}</button>
       )}
     </div>
   )
@@ -644,7 +647,7 @@ function FilterMenu({ ctx }: { ctx: Ctx }) {
   const setFilters = (fn: (f: Filter[]) => void) => ctx.updateView((v) => fn(v.filters))
   return (
     <div className="pop-form wide">
-      {view.filters.length === 0 && <div className="pop-help">Keine Filter – alle Einträge werden angezeigt.</div>}
+      {view.filters.length === 0 && <div className="pop-help">{t('Keine Filter – alle Einträge werden angezeigt.')}</div>}
       {view.filters.map((f, i) => {
         const prop = db.properties.find((p) => p.id === f.prop)
         const ops = prop ? FILTER_OPS[prop.type] : []
@@ -686,7 +689,7 @@ function FilterMenu({ ctx }: { ctx: Ctx }) {
         className="pop-link"
         onClick={() => setFilters((fs) => void fs.push({ prop: db.properties[0].id, op: FILTER_OPS[db.properties[0].type][0], value: '' }))}
       >
-        + Filter
+        {t('+ Filter')}
       </button>
     </div>
   )
@@ -701,13 +704,13 @@ function SortMenu({ ctx }: { ctx: Ctx }) {
           value={view.sort?.prop ?? ''}
           onChange={(e) => ctx.updateView((v) => void (v.sort = e.target.value ? { prop: e.target.value, dir: v.sort?.dir ?? 'asc' } : undefined))}
         >
-          <option value="">Unsortiert</option>
+          <option value="">{t('Unsortiert')}</option>
           {db.properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         {view.sort && (
           <select value={view.sort.dir} onChange={(e) => ctx.updateView((v) => void (v.sort!.dir = e.target.value as 'asc' | 'desc'))}>
-            <option value="asc">aufsteigend</option>
-            <option value="desc">absteigend</option>
+            <option value="asc">{t('aufsteigend')}</option>
+            <option value="desc">{t('absteigend')}</option>
           </select>
         )}
       </div>
@@ -736,7 +739,7 @@ function RowEditor({ ctx, rowId }: { ctx: Ctx; rowId: string }) {
             ctx.close()
           }}
         >
-          Eintrag löschen
+          {t('Eintrag löschen')}
         </button>
       )}
     </div>

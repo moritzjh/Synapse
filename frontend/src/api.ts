@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 export interface NoteSummary {
   id: number
   title: string
@@ -8,7 +10,7 @@ export interface NoteSummary {
 }
 
 /** Display name of a note; new notes start without a title. */
-export const titleOf = (title: string) => title.trim() || 'Ohne Titel'
+export const titleOf = (title: string) => title.trim() || t('Ohne Titel')
 
 export interface FolderMeta {
   color: string

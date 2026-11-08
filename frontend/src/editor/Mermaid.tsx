@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { useEffect, useId, useState } from 'react'
+import { t } from '../i18n'
 
 let mermaidReady: Promise<typeof import('mermaid').default> | null = null
 function loadMermaid() {
@@ -13,10 +14,10 @@ function loadMermaid() {
 }
 
 export const EXAMPLE_DIAGRAM = `flowchart LR
-  A[Notiz] -->|Embedding| B(Vektorindex)
-  B --> C{Ähnlich?}
-  C -->|ja| D[Kante im Graph]
-  C -->|nein| E[ignorieren]`
+  A[${t('Notiz')}] -->|Embedding| B(${t('Vektorindex')})
+  B --> C{${t('Ähnlich?')}}
+  C -->|${t('ja')}| D[${t('Kante im Graph')}]
+  C -->|${t('nein')}| E[${t('ignorieren')}]`
 
 function MermaidView({ node, updateAttributes, selected, editor }: ReactNodeViewProps) {
   const code: string = node.attrs.code
@@ -50,9 +51,9 @@ function MermaidView({ node, updateAttributes, selected, editor }: ReactNodeView
   return (
     <NodeViewWrapper className={`mermaid-block ${selected ? 'selected' : ''}`} contentEditable={false}>
       <div className="mermaid-head">
-        <span>Diagramm</span>
+        <span>{t('Diagramm')}</span>
         {editor.isEditable && (
-          <button onClick={() => setEditing((e) => !e)}>{editing ? 'Fertig' : 'Bearbeiten'}</button>
+          <button onClick={() => setEditing((e) => !e)}>{editing ? t('Fertig') : t('Bearbeiten')}</button>
         )}
       </div>
       {editing && (
@@ -60,7 +61,7 @@ function MermaidView({ node, updateAttributes, selected, editor }: ReactNodeView
           className="mermaid-code"
           value={code}
           spellCheck={false}
-          placeholder="Mermaid-Syntax, z. B. flowchart LR; A --> B"
+          placeholder={t('Mermaid-Syntax, z. B. flowchart LR; A --> B')}
           onChange={(e) => updateAttributes({ code: e.target.value })}
           onKeyDown={(e) => e.stopPropagation()}
         />

@@ -1,5 +1,6 @@
 import type { NoteSummary, Tree } from '../api'
 import { FolderGlyph } from './FolderIcon'
+import { t } from '../i18n'
 
 interface Props {
   /** Folder path whose ancestors (and itself) are shown, e.g. "Uni/Bio/Zelle". */
@@ -21,7 +22,7 @@ export default function Crumbs({ folder, tree, onFolder, onNote, currentIsLast }
   const byPath = new Map<string, NoteSummary>(tree.notes.map((n) => [n.path, n]))
   return (
     <nav className="crumbs">
-      <button onClick={() => onFolder('')}>Notizen</button>
+      <button onClick={() => onFolder('')}>{t('Notizen')}</button>
       {parts.map((name, i) => {
         const path = parts.slice(0, i + 1).join('/')
         const owner = byPath.get(path + '.md')

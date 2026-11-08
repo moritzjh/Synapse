@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 /** Graph settings, modelled on Obsidian's graph view (filters, groups, display, forces) plus visual presets. */
 
 export type StyleName = 'clean' | 'night' | 'neon' | 'stars'
@@ -73,10 +74,10 @@ export interface Preset {
 }
 
 export const PRESETS: Record<StyleName, Preset> = {
-  clean: { name: 'Klar', hint: 'ruhig, folgt dem App-Thema', apply: { style: 'clean', glow: 0, background: 'dots', particles: false } },
-  night: { name: 'Nacht', hint: 'dunkel mit Punktraster', apply: { style: 'night', glow: 0.25, background: 'dots', particles: false } },
-  neon: { name: 'Neon', hint: 'leuchtende Knoten, Signalfluss', apply: { style: 'neon', glow: 0.8, background: 'none', particles: true } },
-  stars: { name: 'Sternbild', hint: 'Sternenhimmel, sanftes Leuchten', apply: { style: 'stars', glow: 0.55, background: 'stars', particles: false } },
+  clean: { name: t('Klar'), hint: t('ruhig, folgt dem App-Thema'), apply: { style: 'clean', glow: 0, background: 'dots', particles: false } },
+  night: { name: t('Nacht'), hint: t('dunkel mit Punktraster'), apply: { style: 'night', glow: 0.25, background: 'dots', particles: false } },
+  neon: { name: t('Neon'), hint: t('leuchtende Knoten, Signalfluss'), apply: { style: 'neon', glow: 0.8, background: 'none', particles: true } },
+  stars: { name: t('Sternbild'), hint: t('Sternenhimmel, sanftes Leuchten'), apply: { style: 'stars', glow: 0.55, background: 'stars', particles: false } },
 }
 
 /** Canvas colours. "clean" reads the CSS theme; the dark presets use the dark palette steps. */

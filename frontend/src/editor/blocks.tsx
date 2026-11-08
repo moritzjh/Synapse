@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { Icon } from '../components/Icons'
 import type { NoteSummary } from '../api'
+import { t } from '../i18n'
 
 export interface PageLinkOptions {
   getNotes: () => NoteSummary[]
@@ -19,7 +20,7 @@ function PageLinkView({ node, extension, selected }: ReactNodeViewProps) {
       data-drag-handle
     >
       <Icon name="note" />
-      <span>{note?.title ?? node.attrs.title ?? 'Gelöschte Seite'}</span>
+      <span>{note?.title ?? node.attrs.title ?? t('Gelöschte Seite')}</span>
     </NodeViewWrapper>
   )
 }
@@ -48,11 +49,11 @@ export const PageLink = Node.create<PageLinkOptions>({
 })
 
 export const CALLOUTS = {
-  note: { icon: '✎', label: 'Notiz' },
-  tip: { icon: '✦', label: 'Tipp' },
-  info: { icon: 'i', label: 'Info' },
-  warning: { icon: '!', label: 'Achtung' },
-  important: { icon: '★', label: 'Wichtig' },
+  note: { icon: '✎', label: t('Notiz') },
+  tip: { icon: '✦', label: t('Tipp') },
+  info: { icon: 'i', label: t('Info') },
+  warning: { icon: '!', label: t('Achtung') },
+  important: { icon: '★', label: t('Wichtig') },
 } as const
 type CalloutKind = keyof typeof CALLOUTS
 
@@ -64,7 +65,7 @@ function CalloutView({ node, updateAttributes, editor }: ReactNodeViewProps) {
       <button
         className="callout-icon"
         contentEditable={false}
-        title={`${CALLOUTS[kind].label} – klicken zum Wechseln`}
+        title={t('{label} – klicken zum Wechseln', { label: CALLOUTS[kind].label })}
         onClick={() => editor.isEditable && updateAttributes({ kind: kinds[(kinds.indexOf(kind) + 1) % kinds.length] })}
       >
         {CALLOUTS[kind].icon}

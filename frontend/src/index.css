@@ -1263,3 +1263,11 @@ button.folder-big:hover { background: var(--bg-active); }
   border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--text-2); white-space: nowrap;
 }
 .link-suggest-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ---------- language switch ---------- */
+.lang-switch { display: flex; gap: 2px; margin-top: 6px; }
+.lang-switch button {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; color: var(--muted);
+}
+.lang-switch button:hover { color: var(--text-2); background: var(--bg-subtle); }
+.lang-switch button.on { color: var(--accent); background: var(--accent-soft); }

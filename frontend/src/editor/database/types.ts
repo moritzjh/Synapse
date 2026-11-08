@@ -1,3 +1,5 @@
+import { t } from '../../i18n'
+
 export type PropType =
   | 'title'
   | 'text'
@@ -69,16 +71,16 @@ export interface DbAttrs {
 }
 
 export const TYPE_LABEL: Record<PropType, string> = {
-  title: 'Titel',
-  text: 'Text',
-  number: 'Zahl',
-  select: 'Auswahl',
-  multi_select: 'Mehrfachauswahl',
-  status: 'Status',
-  date: 'Datum',
-  checkbox: 'Checkbox',
-  url: 'Link',
-  formula: 'Formel',
+  title: t('Titel'),
+  text: t('Text'),
+  number: t('Zahl'),
+  select: t('Auswahl'),
+  multi_select: t('Mehrfachauswahl'),
+  status: t('Status'),
+  date: t('Datum'),
+  checkbox: t('Checkbox'),
+  url: t('Link'),
+  formula: t('Formel'),
 }
 
 export const TYPE_ICON = {

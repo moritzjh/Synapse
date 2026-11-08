@@ -6,6 +6,7 @@ import { pickImages } from './upload'
 import { EXAMPLE_DIAGRAM } from './Mermaid'
 import { editMath } from './Math'
 import { emptyDatabase, taskTracker } from './database/model'
+import { t } from '../i18n'
 
 export interface SlashOptions {
   createSubpage: (title: string) => Promise<{ id: number; title: string }>
@@ -13,6 +14,8 @@ export interface SlashOptions {
 
 interface SlashItem extends MenuItem {
   keywords: string
+  /** German title: internal identifier, also searchable */
+  de?: string
   run: (editor: Editor, range: Range, opts: SlashOptions) => void
 }
 
@@ -39,7 +42,7 @@ const ITEMS: SlashItem[] = [
     title: 'Unterseite', icon: '❐', hint: 'neue Seite darin', keywords: 'page subpage seite unterseite',
     run: async (e, r, o) => {
       e.chain().focus().deleteRange(r).run()
-      const title = prompt('Titel der Unterseite', 'Neue Seite')
+      const title = prompt(t('Titel der Unterseite'), t('Neue Seite'))
       if (!title) return
       const note = await o.createSubpage(title)
       e.chain().focus().insertContent([{ type: 'pageLink', attrs: { noteId: note.id, title: note.title } }, { type: 'paragraph' }]).run()
@@ -54,7 +57,7 @@ const ITEMS: SlashItem[] = [
     run: (e, r) => e.chain().focus().deleteRange(r).insertContent([{ type: 'database', attrs: taskTracker() }, { type: 'paragraph' }]).run(),
   },
   {
-    title: 'Callout', icon: '✦', hint: 'hervorgehobener Kasten', keywords: 'callout hinweis box tipp info warnung',
+    title: 'Callout', icon: '✦', hint: 'hervorgehobener Kasten', keywords: 'callout hinweis box tipp info warnung note tip warning',
     run: (e, r) =>
       e.chain().focus().deleteRange(r)
         .insertContent({ type: 'callout', attrs: { kind: 'tip' }, content: [{ type: 'paragraph' }] })
@@ -67,16 +70,16 @@ const ITEMS: SlashItem[] = [
   { title: 'Trennlinie', icon: '—', keywords: 'divider hr line', run: (e, r) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
   {
     title: 'Karteikarte', icon: '→', hint: 'Frage >> Antwort', keywords: 'flashcard karte card anki',
-    run: (e, r) => e.chain().focus().deleteRange(r).insertContent('Frage >> Antwort').run(),
+    run: (e, r) => e.chain().focus().deleteRange(r).insertContent(t('Frage >> Antwort')).run(),
   },
   {
     title: 'Listen-Karte', icon: '☰', hint: 'Punkte einzeln aufdecken', keywords: 'flashcard list multi liste',
     run: (e, r) =>
       e.chain().focus().deleteRange(r)
         .insertContent([
-          { type: 'paragraph', content: [{ type: 'text', text: 'Frage >>' }] },
-          { type: 'bulletList', content: ['Punkt 1', 'Punkt 2', 'Punkt 3'].map((t) => ({
-              type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })) },
+          { type: 'paragraph', content: [{ type: 'text', text: t('Frage >>') }] },
+          { type: 'bulletList', content: [1, 2, 3].map((n) => ({
+              type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t('Punkt {n}', { n }) }] }] })) },
         ])
         .run(),
   },
@@ -100,8 +103,8 @@ const ITEMS: SlashItem[] = [
     },
   },
   {
-    title: 'Lückentext', icon: '▭', hint: '{{verdeckt}}', keywords: 'cloze lücke abdecken',
-    run: (e, r) => e.chain().focus().deleteRange(r).insertContent('{{verdeckt}}').run(),
+    title: 'Lückentext', icon: '▭', hint: '{{verdeckt}}', keywords: 'cloze lücke abdecken gap blank',
+    run: (e, r) => e.chain().focus().deleteRange(r).insertContent(t('{{verdeckt}}')).run(),
   },
 ]
 
@@ -115,8 +118,14 @@ const KBD: Record<string, string> = {
   'Überschrift 1': '#', 'Überschrift 2': '##', 'Überschrift 3': '###', Aufzählung: '-', 'Nummerierte Liste': '1.',
   'To-do-Liste': '[]', Zitat: '>', Code: '```', Trennlinie: '---', Karteikarte: '>>', Lückentext: '{{ }}', Formel: '$ $', Formelblock: '$$',
 }
+// German titles are the identifiers above; the menu shows them translated.
 const SLASH_ITEMS: SlashItem[] = GROUPS.flatMap(([group, titles]) =>
-  titles.map((t) => ({ ...ITEMS.find((i) => i.title === t)!, group, kbd: KBD[t] })),
+  titles.map((de) => {
+    const item = ITEMS.find((i) => i.title === de)!
+    const title = t(de)
+    const hint = item.hint && t(item.hint) !== title ? t(item.hint) : undefined
+    return { ...item, de, title, hint, group: t(group), kbd: KBD[de] }
+  }),
 )
 
 /** Notion-style "/" command menu. */
@@ -135,8 +144,8 @@ export const SlashCommands = Extension.create<SlashOptions>({
           const q = query.toLowerCase()
           // title prefix > title substring > keyword
           const rank = (i: SlashItem) => {
-            const t = i.title.toLowerCase()
-            return t.startsWith(q) ? 0 : t.includes(q) ? 1 : i.keywords.includes(q) ? 2 : 9
+            const titles = [i.title, i.de ?? i.title].map((s) => s.toLowerCase())
+            return titles.some((s) => s.startsWith(q)) ? 0 : titles.some((s) => s.includes(q)) ? 1 : i.keywords.includes(q) ? 2 : 9
           }
           return SLASH_ITEMS.map((item, idx) => ({ item, idx, r: rank(item) }))
             .filter((x) => x.r < 9)
@@ -144,7 +153,7 @@ export const SlashCommands = Extension.create<SlashOptions>({
             .map((x) => x.item)
         },
         command: ({ editor, range, props }) => props.run(editor, range, this.options),
-        render: menuRenderer<SlashItem>('Kein Befehl'),
+        render: menuRenderer<SlashItem>(t('Kein Befehl')),
       }),
     ]
   },
@@ -182,7 +191,7 @@ export const WikilinkSuggest = Extension.create<WikilinkOptions>({
             .slice(0, 8)
             .map((title): LinkItem => ({ title, icon: '↗' }))
           if (q && !matches.some((m) => m.title.toLowerCase() === q))
-            matches.push({ title: query.replace(/\]+$/, ''), icon: '+', hint: 'neue Notiz', create: true })
+            matches.push({ title: query.replace(/\]+$/, ''), icon: '+', hint: t('neue Notiz'), create: true })
           return matches
         },
         command: ({ editor, range, props }) => {
@@ -191,7 +200,7 @@ export const WikilinkSuggest = Extension.create<WikilinkOptions>({
           const to = after === ']]' ? range.to + 2 : range.to
           editor.chain().focus().insertContentAt({ from: range.from, to }, `[[${props.title}]] `).run()
         },
-        render: menuRenderer<LinkItem>('Titel tippen…'),
+        render: menuRenderer<LinkItem>(t('Titel tippen…')),
       }),
     ]
   },

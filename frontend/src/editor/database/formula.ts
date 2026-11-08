@@ -8,6 +8,8 @@
  * Values: numbers, "strings", true/false, dates, lists.
  */
 
+import { lang, locale, t } from '../../i18n'
+
 export type Value = number | string | boolean | Date | null | Value[]
 
 type Token =
@@ -27,7 +29,7 @@ function tokenize(src: string): Token[] {
       i++
     } else if (/[0-9.]/.test(c)) {
       const m = src.slice(i).match(/^\d*\.?\d+(e[+-]?\d+)?/i)
-      if (!m) throw new FormulaError(`Unerwartetes Zeichen „${c}“`)
+      if (!m) throw new FormulaError(t('Unerwartetes Zeichen „{c}“', { c }))
       out.push({ t: 'num', v: parseFloat(m[0]) })
       i += m[0].length
     } else if (c === '"' || c === "'") {
@@ -36,7 +38,7 @@ function tokenize(src: string): Token[] {
         if (src[j] === '\\' && j + 1 < src.length) j++
         s += src[j++]
       }
-      if (j >= src.length) throw new FormulaError('Text nicht geschlossen')
+      if (j >= src.length) throw new FormulaError(t('Text nicht geschlossen'))
       out.push({ t: 'str', v: s })
       i = j + 1
     } else if (/[A-Za-z_äöüÄÖÜ]/.test(c)) {
@@ -53,7 +55,7 @@ function tokenize(src: string): Token[] {
         out.push({ t: 'op', v: c === '!' ? 'not' : c })
         i++
       } else {
-        throw new FormulaError(`Unerwartetes Zeichen „${c}“`)
+        throw new FormulaError(t('Unerwartetes Zeichen „{c}“', { c }))
       }
     }
   }
@@ -73,12 +75,12 @@ function parse(tokens: Token[]): Ast {
   const peek = () => tokens[p]
   const isOp = (v: string) => peek()?.t === 'op' && peek()!.v === v
   const expect = (v: string) => {
-    if (!isOp(v)) throw new FormulaError(`„${v}“ erwartet`)
+    if (!isOp(v)) throw new FormulaError(t('„{v}“ erwartet', { v }))
     p++
   }
   const primary = (): Ast => {
     const tk = tokens[p++]
-    if (!tk) throw new FormulaError('Formel endet unerwartet')
+    if (!tk) throw new FormulaError(t('Formel endet unerwartet'))
     if (tk.t === 'num' || tk.t === 'str') return { k: 'lit', v: tk.v }
     if (tk.t === 'op' && tk.v === '(') {
       const e = expr(0)
@@ -88,7 +90,7 @@ function parse(tokens: Token[]): Ast {
     if (tk.t === 'op' && (tk.v === '-' || tk.v === 'not')) return { k: 'un', op: tk.v, a: expr(7) }
     if (tk.t === 'id') {
       if (tk.v === 'true' || tk.v === 'false') return { k: 'lit', v: tk.v === 'true' }
-      if (!isOp('(')) throw new FormulaError(`„${tk.v}“ ist keine Funktion – Eigenschaften mit prop("Name")`)
+      if (!isOp('(')) throw new FormulaError(t('„{name}“ ist keine Funktion – Eigenschaften mit prop("Name")', { name: tk.v }))
       p++
       const args: Ast[] = []
       if (!isOp(')')) {
@@ -98,7 +100,7 @@ function parse(tokens: Token[]): Ast {
       expect(')')
       return { k: 'call', name: tk.v, args }
     }
-    throw new FormulaError(`Unerwartet: „${tk.v}“`)
+    throw new FormulaError(t('Unerwartet: „{v}“', { v: tk.v }))
   }
   const expr = (min: number): Ast => {
     let left = primary()
@@ -111,7 +113,7 @@ function parse(tokens: Token[]): Ast {
     return left
   }
   const ast = expr(0)
-  if (p < tokens.length) throw new FormulaError(`Unerwartet: „${(tokens[p] as { v: unknown }).v}“`)
+  if (p < tokens.length) throw new FormulaError(t('Unerwartet: „{v}“', { v: String((tokens[p] as { v: unknown }).v) }))
   return ast
 }
 
@@ -128,7 +130,7 @@ export function show(v: Value): string {
   if (v === null) return ''
   if (typeof v === 'boolean') return v ? '✓' : '✗'
   if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100)
-  if (v instanceof Date) return v.toLocaleDateString('de-DE')
+  if (v instanceof Date) return v.toLocaleDateString(locale)
   if (Array.isArray(v)) return v.map(show).join(', ')
   return v
 }
@@ -192,7 +194,7 @@ const FUNCTIONS: Record<string, Fn> = {
     if (unit.startsWith('year') || unit.startsWith('jahr')) return x.getFullYear() - y.getFullYear()
     return Math.floor((x.getTime() - y.getTime()) / (UNITS[unit] ?? DAY))
   },
-  formatDate: ([d]) => (date(d) ? date(d)!.toLocaleDateString('de-DE') : ''),
+  formatDate: ([d]) => (date(d) ? date(d)!.toLocaleDateString(locale) : ''),
   year: ([d]) => date(d)?.getFullYear() ?? null,
   month: ([d]) => (date(d) ? date(d)!.getMonth() + 1 : null),
   day: ([d]) => date(d)?.getDate() ?? null,
@@ -237,7 +239,7 @@ export function evaluate(ast: Ast, prop: PropLookup): Value {
           case '<=': return cmp(a, b) <= 0
           case '>=': return cmp(a, b) >= 0
         }
-        throw new FormulaError(`Operator ${n.op}`)
+        throw new FormulaError(t('Operator {op}', { op: n.op }))
       }
       case 'call': {
         if (n.name === 'prop') {
@@ -246,7 +248,7 @@ export function evaluate(ast: Ast, prop: PropLookup): Value {
         }
         if (n.name === 'if') return truthy(ev(n.args[0])) ? (n.args[1] ? ev(n.args[1]) : null) : n.args[2] ? ev(n.args[2]) : null
         const f = FUNCTIONS[n.name]
-        if (!f) throw new FormulaError(`Unbekannte Funktion „${n.name}“`)
+        if (!f) throw new FormulaError(t('Unbekannte Funktion „{name}“', { name: n.name }))
         return f(n.args.map(ev))
       }
     }
@@ -266,5 +268,5 @@ function eq(a: Value, b: Value) {
 function cmp(a: Value, b: Value) {
   const x = num(a), y = num(b)
   if (!isNaN(x) && !isNaN(y)) return x - y
-  return show(a).localeCompare(show(b), 'de')
+  return show(a).localeCompare(show(b), lang)
 }

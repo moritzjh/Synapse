@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { examApi, titleOf, type Exam, type ExamInput, type NoteSummary } from '../api'
 import { Icon } from './Icons'
+import { locale, t } from '../i18n'
 
 interface Props {
   exams: Exam[]
@@ -28,10 +29,11 @@ export default function Exams({ exams, notes, onChanged, onStudy }: Props) {
   return (
     <div className="scroll">
       <div className="page wide">
-        <h1 className="page-title">Prüfungen</h1>
+        <h1 className="page-title">{t('Prüfungen')}</h1>
         <p className="page-sub">
-          Gib an, wann du welche Notizen können musst. Neue Karten werden so verteilt, dass du rechtzeitig fertig bist,
-          und alles Wackelige kommt kurz vor dem Termin noch einmal dran.
+          {t(
+            'Gib an, wann du welche Notizen können musst. Neue Karten werden so verteilt, dass du rechtzeitig fertig bist, und alles Wackelige kommt kurz vor dem Termin noch einmal dran.',
+          )}
         </p>
 
         {editing ? (
@@ -44,7 +46,7 @@ export default function Exams({ exams, notes, onChanged, onStudy }: Props) {
           />
         ) : (
           <button className="btn" style={{ marginBottom: 18 }} onClick={() => setEditing('new')}>
-            <Icon name="plus" /> Prüfung anlegen
+            <Icon name="plus" /> {t('Prüfung anlegen')}
           </button>
         )}
 
@@ -57,18 +59,18 @@ export default function Exams({ exams, notes, onChanged, onStudy }: Props) {
               <div className="exam" key={e.id}>
                 <h3>{e.name}</h3>
                 <div className={`when ${days < 0 ? 'past' : ''}`}>
-                  {new Date(e.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date(e.date).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}
                   {' · '}
-                  <b>{days < 0 ? 'vorbei' : days === 0 ? 'heute' : days === 1 ? 'morgen' : `in ${days} Tagen`}</b>
+                  <b>{days < 0 ? t('vorbei') : days === 0 ? t('heute') : days === 1 ? t('morgen') : t('in {n} Tagen', { n: days })}</b>
                 </div>
                 <div className="exam-actions">
-                  <button className="btn primary" onClick={() => onStudy(e.id)} disabled={!p.cards}>Lernen</button>
-                  <button className="icon-btn" title="Bearbeiten" onClick={() => setEditing(e)}><Icon name="edit" /></button>
+                  <button className="btn primary" onClick={() => onStudy(e.id)} disabled={!p.cards}>{t('Lernen')}</button>
+                  <button className="icon-btn" title={t('Bearbeiten')} onClick={() => setEditing(e)}><Icon name="edit" /></button>
                   <button
                     className="icon-btn"
-                    title="Löschen"
+                    title={t('Löschen')}
                     onClick={async () => {
-                      if (!confirm(`Prüfung „${e.name}“ löschen?`)) return
+                      if (!confirm(t('Prüfung „{name}“ löschen?', { name: e.name }))) return
                       await examApi.remove(e.id)
                       onChanged()
                     }}
@@ -76,21 +78,21 @@ export default function Exams({ exams, notes, onChanged, onStudy }: Props) {
                     <Icon name="trash" />
                   </button>
                 </div>
-                <div className="bar" title={`${p.mastered} sicher, ${learned} angefangen, ${p.new} neu`}>
+                <div className="bar" title={t('{mastered} sicher, {learned} angefangen, {new} neu', { mastered: p.mastered, learned, new: p.new })}>
                   <div className="m" style={{ width: `${(p.mastered / Math.max(1, p.cards)) * 100}%` }} />
                   <div className="l" style={{ width: `${(learned / Math.max(1, p.cards)) * 100}%` }} />
                 </div>
                 <div className="exam-stats">
-                  <span><b>{Math.round(p.predicted_retention * 100)}%</b> erwartete Erinnerung am Prüfungstag</span>
-                  <span><b>{p.mastered}</b>/ {p.cards} sicher</span>
-                  {days >= 0 && <span><b>{p.new_today}</b> neue heute</span>}
-                  <span><b>{p.due}</b> fällig</span>
+                  <span><b>{Math.round(p.predicted_retention * 100)}%</b> {t('erwartete Erinnerung am Prüfungstag')}</span>
+                  <span><b>{p.mastered}</b>/ {p.cards} {t('sicher')}</span>
+                  {days >= 0 && <span><b>{p.new_today}</b> {t('neue heute')}</span>}
+                  <span><b>{p.due}</b> {t('fällig')}</span>
                 </div>
-                <div className="exam-notes">{e.notes.map((n) => titleOf(n.title)).join(' · ') || 'Keine Notizen ausgewählt'}</div>
+                <div className="exam-notes">{e.notes.map((n) => titleOf(n.title)).join(' · ') || t('Keine Notizen ausgewählt')}</div>
               </div>
             )
           })}
-          {exams.length === 0 && !editing && <p className="muted">Noch keine Prüfungen.</p>}
+          {exams.length === 0 && !editing && <p className="muted">{t('Noch keine Prüfungen.')}</p>}
         </div>
       </div>
     </div>
@@ -127,17 +129,17 @@ function ExamForm({ exam, notes, onSave, onCancel }: {
     >
       <div className="form-row">
         <label className="field">
-          Name
-          <input type="text" value={name} autoFocus placeholder="z. B. Biologie-Klausur" onChange={(e) => setName(e.target.value)} />
+          {t('Name')}
+          <input type="text" value={name} autoFocus placeholder={t('z. B. Biologie-Klausur')} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="field" style={{ flex: '0 0 180px' }}>
-          Datum
+          {t('Datum')}
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
       </div>
       <div className="field">
-        Notizen ({picked.size})
-        <input type="search" placeholder="Filtern" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        {t('Notizen ({n})', { n: picked.size })}
+        <input type="search" placeholder={t('Filtern')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="pick-list">
           {visible.map((n) => (
             <label key={n.id}>
@@ -148,8 +150,8 @@ function ExamForm({ exam, notes, onSave, onCancel }: {
         </div>
       </div>
       <div className="form-actions">
-        <button type="button" className="btn ghost" onClick={onCancel}>Abbrechen</button>
-        <button type="submit" className="btn primary">Speichern</button>
+        <button type="button" className="btn ghost" onClick={onCancel}>{t('Abbrechen')}</button>
+        <button type="submit" className="btn primary">{t('Speichern')}</button>
       </div>
     </form>
   )

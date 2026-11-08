@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { cellValue, numericValue } from './model'
 import type { ChartConfig, Color, DbAttrs, Row } from './types'
 import { show } from './formula'
+import { locale, t } from '../../i18n'
 
 interface Group {
   key: string
@@ -37,26 +38,26 @@ function groupRows(db: DbAttrs, rows: Row[], cfg: ChartConfig): { groups: Group[
     if (x.type === 'select' || x.type === 'status') {
       const i = x.options?.findIndex((o) => o.id === c) ?? -1
       const o = i >= 0 ? x.options![i] : null
-      add(o?.id ?? '∅', o?.name ?? 'Leer', o?.color ?? null, o ? i : 999, row)
+      add(o?.id ?? '∅', o?.name ?? t('Leer'), o?.color ?? null, o ? i : 999, row)
     } else if (x.type === 'multi_select') {
       const ids = Array.isArray(c) ? c : []
-      if (!ids.length) add('∅', 'Leer', null, 999, row)
+      if (!ids.length) add('∅', t('Leer'), null, 999, row)
       for (const id of ids) {
         const i = x.options?.findIndex((o) => o.id === id) ?? -1
         if (i >= 0) add(id, x.options![i].name, x.options![i].color, i, row)
       }
     } else if (x.type === 'checkbox') {
-      add(c ? 'yes' : 'no', c ? 'Ja' : 'Nein', c ? 'green' : 'gray', c ? 0 : 1, row)
+      add(c ? 'yes' : 'no', c ? t('Ja') : t('Nein'), c ? 'green' : 'gray', c ? 0 : 1, row)
     } else if (temporal) {
       if (typeof c !== 'string' || !c) continue
       const key = monthly ? c.slice(0, 7) : c.slice(0, 10)
       const d = new Date(key + (monthly ? '-01' : '') + 'T00:00')
-      const label = d.toLocaleDateString('de-DE', monthly ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' })
+      const label = d.toLocaleDateString(locale, monthly ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' })
       add(key, label, null, d.getTime(), row)
     } else {
       let label: string
       try {
-        label = show(cellValue(db, row, x)) || 'Leer'
+        label = show(cellValue(db, row, x)) || t('Leer')
       } catch {
         label = '⚠'
       }
@@ -74,13 +75,13 @@ function groupRows(db: DbAttrs, rows: Row[], cfg: ChartConfig): { groups: Group[
     const rest = groups.slice(MAX_GROUPS - 1)
     groups = [
       ...groups.slice(0, MAX_GROUPS - 1),
-      { key: 'other', label: `Andere (${rest.length})`, value: rest.reduce((s, g) => s + g.value, 0), color: 'gray', order: 1e9 },
+      { key: 'other', label: t('Andere ({n})', { n: rest.length }), value: rest.reduce((s, g) => s + g.value, 0), color: 'gray', order: 1e9 },
     ]
   }
   return { groups, temporal }
 }
 
-const fmt = (v: number) => (Number.isInteger(v) ? v.toLocaleString('de-DE') : v.toLocaleString('de-DE', { maximumFractionDigits: 1 }))
+const fmt = (v: number) => (Number.isInteger(v) ? v.toLocaleString(locale) : v.toLocaleString(locale, { maximumFractionDigits: 1 }))
 
 function niceMax(v: number) {
   if (v <= 0) return 1
@@ -98,9 +99,9 @@ export default function Chart({ db, rows, config }: Props) {
   const { groups, temporal } = useMemo(() => groupRows(db, rows, config), [db, rows, config])
   const [hover, setHover] = useState<number | null>(null)
   const y = config.y ? db.properties.find((p) => p.id === config.y) : undefined
-  const measure = !y || config.agg === 'count' ? 'Anzahl' : `${config.agg === 'sum' ? 'Summe' : 'Ø'} ${y.name}`
+  const measure = !y || config.agg === 'count' ? t('Anzahl') : config.agg === 'sum' ? t('Summe {name}', { name: y.name }) : t('Ø {name}', { name: y.name })
 
-  if (!groups.length) return <div className="chart-empty">Keine Daten für dieses Diagramm.</div>
+  if (!groups.length) return <div className="chart-empty">{t('Keine Daten für dieses Diagramm.')}</div>
   const total = groups.reduce((s, g) => s + g.value, 0)
   const kind = config.kind === 'line' && groups.length < 2 ? 'bar' : config.kind
 
@@ -124,7 +125,7 @@ export default function Chart({ db, rows, config }: Props) {
     const h = hover !== null ? groups[hover] : null
     return (
       <div className="chart chart-donut">
-        <svg viewBox="0 0 180 180" width="180" height="180" role="img" aria-label={`${measure} nach ${db.properties.find((p) => p.id === config.x)?.name}`}>
+        <svg viewBox="0 0 180 180" width="180" height="180" role="img" aria-label={t('{measure} nach {prop}', { measure, prop: db.properties.find((p) => p.id === config.x)?.name ?? '' })}>
           {arcs.map((d, i) => (
             <path
               key={groups[i].key}

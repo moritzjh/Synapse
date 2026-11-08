@@ -3,6 +3,7 @@ import { api, cardApi, extractWikilinks, semanticApi, titleOf, type Card, type E
 import RichEditor, { toDoc, type Doc } from '../editor/RichEditor'
 import { Icon } from './Icons'
 import Crumbs from './Crumbs'
+import { t } from '../i18n'
 
 interface Props {
   noteId: number
@@ -133,19 +134,19 @@ export default function NotePage(props: Props) {
           onFolder={(p) => flush().then(() => props.onOpenFolder(p))}
           onNote={(id) => flush().then(() => onOpenNote(id))}
         />
-        <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? 'Speichert…' : 'Bearbeitet'}</span>
+        <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? t('Speichert…') : t('Bearbeitet')}</span>
         {cards.length > 0 && self?.path && (
-          <button className="study-chip" title="Karten dieser Notiz lernen" onClick={() => flush().then(() => props.onStudy(self.path, titleOf(title)))}>
-            <Icon name="cards" /> Lernen
+          <button className="study-chip" title={t('Karten dieser Notiz lernen')} onClick={() => flush().then(() => props.onStudy(self.path, titleOf(title)))}>
+            <Icon name="cards" /> {t('Lernen')}
           </button>
         )}
-        <button className={`icon-btn ${source !== null ? 'on' : ''}`} title="Markdown-Quelltext" onClick={toggleSource}>
+        <button className={`icon-btn ${source !== null ? 'on' : ''}`} title={t('Markdown-Quelltext')} onClick={toggleSource}>
           <Icon name="code" />
         </button>
-        <button className="icon-btn" title="Lokaler Graph" onClick={props.onLocalGraph}>
+        <button className="icon-btn" title={t('Lokaler Graph')} onClick={props.onLocalGraph}>
           <Icon name="graph" />
         </button>
-        <button className="icon-btn" title="Notiz löschen" onClick={() => confirm(`„${titleOf(title)}“ löschen?`) && onDelete(noteId)}>
+        <button className="icon-btn" title={t('Notiz löschen')} onClick={() => confirm(t('„{title}“ löschen?', { title: titleOf(title) })) && onDelete(noteId)}>
           <Icon name="trash" />
         </button>
       </div>
@@ -160,7 +161,7 @@ export default function NotePage(props: Props) {
           }}
           className="title-input"
           value={title}
-          placeholder="Ohne Titel"
+          placeholder={t('Ohne Titel')}
           onChange={(e) => {
             setTitle(e.target.value)
             schedule(source !== null ? { title: e.target.value, markdown: source } : { title: e.target.value, doc: pending.current?.doc ?? doc })
@@ -169,13 +170,13 @@ export default function NotePage(props: Props) {
         <div className="note-meta">
           {cards.length > 0 && (
             <span>
-              <Icon name="cards" /> {cards.length} {cards.length === 1 ? 'Karte' : 'Karten'}
+              <Icon name="cards" /> {cards.length === 1 ? t('1 Karte') : t('{n} Karten', { n: cards.length })}
             </span>
           )}
           {exams.map((e) => (
             <span key={e.id} className="exam-tag">
               <Icon name="calendar" /> {e.name}
-              {days(e.date) >= 0 ? ` · in ${days(e.date)} ${days(e.date) === 1 ? 'Tag' : 'Tagen'}` : ''}
+              {days(e.date) >= 0 ? ' · ' + (days(e.date) === 1 ? t('in 1 Tag') : t('in {n} Tagen', { n: days(e.date) })) : ''}
             </span>
           ))}
           {self?.path && source !== null && <span className="mono">{self.path}</span>}
@@ -217,7 +218,7 @@ export default function NotePage(props: Props) {
           <div className="connections">
             {links.length > 0 && (
               <section>
-                <h4>Verlinkt</h4>
+                <h4>{t('Verlinkt')}</h4>
                 <div className="conn-list">
                   {links.map((l) => (
                     <button key={l} onClick={() => flush().then(() => onOpenLink(l))}>{l}</button>
@@ -227,7 +228,7 @@ export default function NotePage(props: Props) {
             )}
             {backlinks.length > 0 && (
               <section>
-                <h4>Erwähnt in</h4>
+                <h4>{t('Erwähnt in')}</h4>
                 <div className="conn-list">
                   {backlinks.map((b) => (
                     <button key={b.id} onClick={() => onOpenNote(b.id)}>{titleOf(b.title)}</button>
@@ -237,7 +238,7 @@ export default function NotePage(props: Props) {
             )}
             {similar.length > 0 && (
               <section>
-                <h4>Ähnlich</h4>
+                <h4>{t('Ähnlich')}</h4>
                 <div className="conn-list">
                   {similar.slice(0, 6).map((s) => (
                     <button key={s.id} onClick={() => onOpenNote(s.id)}>
@@ -249,7 +250,7 @@ export default function NotePage(props: Props) {
             )}
             {cards.length > 0 && (
               <section>
-                <h4>Karteikarten</h4>
+                <h4>{t('Karteikarten')}</h4>
                 <div className="card-rows">
                   {cards.map((c) => (
                     <div key={c.id}>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Icon } from '../Icons'
+import { t } from '../../i18n'
 import { DEFAULTS, PRESETS, type Group, type Settings, type StyleName } from './settings'
 
 interface Props {
@@ -43,16 +44,16 @@ export default function GraphPanel({ settings: s, series, set, replace, onClose 
   return (
     <div className="gp">
       <header className="gp-top">
-        <span>Graph</span>
-        <button className="icon-btn" title="Alles zurücksetzen" onClick={() => replace(DEFAULTS)}>
+        <span>{t('Graph')}</span>
+        <button className="icon-btn" title={t('Alles zurücksetzen')} onClick={() => replace(DEFAULTS)}>
           <Icon name="reset" />
         </button>
-        <button className="icon-btn" title="Schließen" onClick={onClose}>
+        <button className="icon-btn" title={t('Schließen')} onClick={onClose}>
           <Icon name="x" />
         </button>
       </header>
 
-      {Section({ id: "style", title: "Stil", children: (<>
+      {Section({ id: "style", title: t('Stil'), children: (<>
         <div className="gp-presets">
           {(Object.keys(PRESETS) as StyleName[]).map((k) => (
             <button
@@ -68,34 +69,34 @@ export default function GraphPanel({ settings: s, series, set, replace, onClose 
             </button>
           ))}
         </div>
-        <Slider label="Leuchten" value={s.glow} min={0} max={1} step={0.05} fmt={pct} set={(v) => set('glow', v)} />
-        <Row label="Hintergrund">
+        <Slider label={t('Leuchten')} value={s.glow} min={0} max={1} step={0.05} fmt={pct} set={(v) => set('glow', v)} />
+        <Row label={t('Hintergrund')}>
           <Segmented
             value={s.background}
-            options={[['none', 'Ohne'], ['dots', 'Raster'], ['stars', 'Sterne']]}
+            options={[['none', t('Ohne')], ['dots', t('Raster')], ['stars', t('Sterne')]]}
             set={(v) => set('background', v as Settings['background'])}
           />
         </Row>
-        <Toggle label="Signalfluss beim Zeigen" on={s.particles} set={(v) => set('particles', v)} />
+        <Toggle label={t('Signalfluss beim Zeigen')} on={s.particles} set={(v) => set('particles', v)} />
       </>) })}
 
-      {Section({ id: "filter", title: "Filter", children: (<>
-        <Toggle label="Verlinkungen" on={s.links} set={(v) => set('links', v)} />
-        <Toggle label="Unterseiten" on={s.subpages} set={(v) => set('subpages', v)} />
-        <Toggle label="Ähnlicher Inhalt" on={s.semantic} set={(v) => set('semantic', v)} />
+      {Section({ id: "filter", title: t('Filter'), children: (<>
+        <Toggle label={t('Verlinkungen')} on={s.links} set={(v) => set('links', v)} />
+        <Toggle label={t('Unterseiten')} on={s.subpages} set={(v) => set('subpages', v)} />
+        <Toggle label={t('Ähnlicher Inhalt')} on={s.semantic} set={(v) => set('semantic', v)} />
         {s.semantic && (
-          <Slider label="ab Ähnlichkeit" value={s.minSimilarity} min={0} max={0.95} step={0.05} fmt={pct} set={(v) => set('minSimilarity', v)} />
+          <Slider label={t('ab Ähnlichkeit')} value={s.minSimilarity} min={0} max={0.95} step={0.05} fmt={pct} set={(v) => set('minSimilarity', v)} />
         )}
-        <Toggle label="Notizen ohne Verbindung" on={s.orphans} set={(v) => set('orphans', v)} />
+        <Toggle label={t('Notizen ohne Verbindung')} on={s.orphans} set={(v) => set('orphans', v)} />
       </>) })}
 
-      {Section({ id: "groups", title: "Gruppen", children: (<>
-        <Toggle label="Automatisch nach Ordner" on={s.autoGroups} set={(v) => set('autoGroups', v)} />
+      {Section({ id: "groups", title: t('Gruppen'), children: (<>
+        <Toggle label={t('Automatisch nach Ordner')} on={s.autoGroups} set={(v) => set('autoGroups', v)} />
         {s.autoGroups && (
-          <Row label="Ebene">
+          <Row label={t('Ebene')}>
             <Segmented
               value={String(s.colorDepth)}
-              options={[['0', 'Auto'], ['1', 'Oberste'], ['2', 'Unterordner']]}
+              options={[['0', t('Auto')], ['1', t('Oberste')], ['2', t('Unterordner')]]}
               set={(v) => set('colorDepth', Number(v) as 0 | 1 | 2)}
             />
           </Row>
@@ -113,32 +114,32 @@ export default function GraphPanel({ settings: s, series, set, replace, onClose 
           className="gp-add"
           onClick={() => setGroups((gs) => [...gs, { id: Math.random().toString(36).slice(2, 9), query: '', color: gs.length % 8 }])}
         >
-          <Icon name="plus" /> Neue Gruppe
+          <Icon name="plus" /> {t('Neue Gruppe')}
         </button>
-        <p className="gp-note">Eigene Gruppen gehen vor. Suche nach Titel, oder <code>path:Uni/Bio</code> · <code>title:Mitose</code></p>
+        <p className="gp-note">{t('Eigene Gruppen gehen vor. Suche nach Titel, oder')} <code>path:Uni/Bio</code> · <code>title:Mitose</code></p>
       </>) })}
 
-      {Section({ id: "display", title: "Anzeige", children: (<>
-        <Row label="Beschriftung">
+      {Section({ id: "display", title: t('Anzeige'), children: (<>
+        <Row label={t('Beschriftung')}>
           <Segmented
             value={s.labels}
-            options={[['auto', 'Auto'], ['always', 'Immer'], ['hover', 'Zeigen']]}
+            options={[['auto', t('Auto')], ['always', t('Immer')], ['hover', t('Zeigen')]]}
             set={(v) => set('labels', v as Settings['labels'])}
           />
         </Row>
         {s.labels === 'auto' && (
-          <Slider label="Text einblenden ab Zoom" value={s.textFade} min={0} max={1} step={0.05} fmt={(v) => `${(0.3 + v * 2).toFixed(1)}×`} set={(v) => set('textFade', v)} />
+          <Slider label={t('Text einblenden ab Zoom')} value={s.textFade} min={0} max={1} step={0.05} fmt={(v) => `${(0.3 + v * 2).toFixed(1)}×`} set={(v) => set('textFade', v)} />
         )}
-        <Slider label="Knotengröße" value={s.nodeSize} min={0.4} max={2.5} step={0.1} fmt={(v) => `${v.toFixed(1)}×`} set={(v) => set('nodeSize', v)} />
-        <Slider label="Linkstärke" value={s.linkWidth} min={0.3} max={3} step={0.1} fmt={(v) => `${v.toFixed(1)}×`} set={(v) => set('linkWidth', v)} />
-        <Toggle label="Pfeile" on={s.arrows} set={(v) => set('arrows', v)} />
+        <Slider label={t('Knotengröße')} value={s.nodeSize} min={0.4} max={2.5} step={0.1} fmt={(v) => `${v.toFixed(1)}×`} set={(v) => set('nodeSize', v)} />
+        <Slider label={t('Linkstärke')} value={s.linkWidth} min={0.3} max={3} step={0.1} fmt={(v) => `${v.toFixed(1)}×`} set={(v) => set('linkWidth', v)} />
+        <Toggle label={t('Pfeile')} on={s.arrows} set={(v) => set('arrows', v)} />
       </>) })}
 
-      {Section({ id: "forces", title: "Kräfte", children: (<>
-        <Slider label="Zentrierung" value={s.center} min={0} max={0.4} step={0.01} fmt={(v) => v.toFixed(2)} set={(v) => set('center', v)} />
-        <Slider label="Abstoßung" value={s.repel} min={10} max={800} step={10} fmt={String} set={(v) => set('repel', v)} />
-        <Slider label="Linkkraft" value={s.linkForce} min={0.05} max={1} step={0.05} fmt={(v) => v.toFixed(2)} set={(v) => set('linkForce', v)} />
-        <Slider label="Linkabstand" value={s.distance} min={10} max={250} step={5} fmt={String} set={(v) => set('distance', v)} />
+      {Section({ id: "forces", title: t('Kräfte'), children: (<>
+        <Slider label={t('Zentrierung')} value={s.center} min={0} max={0.4} step={0.01} fmt={(v) => v.toFixed(2)} set={(v) => set('center', v)} />
+        <Slider label={t('Abstoßung')} value={s.repel} min={10} max={800} step={10} fmt={String} set={(v) => set('repel', v)} />
+        <Slider label={t('Linkkraft')} value={s.linkForce} min={0.05} max={1} step={0.05} fmt={(v) => v.toFixed(2)} set={(v) => set('linkForce', v)} />
+        <Slider label={t('Linkabstand')} value={s.distance} min={10} max={250} step={5} fmt={String} set={(v) => set('distance', v)} />
       </>) })}
     </div>
   )
@@ -213,9 +214,9 @@ function GroupRow({ group, series, change, remove }: { group: Group; series: str
   const [picking, setPicking] = useState(false)
   return (
     <div className="gp-group">
-      <button className="gp-color" style={{ background: series[group.color] }} onClick={() => setPicking((p) => !p)} title="Farbe" />
-      <input value={group.query} placeholder="Suchbegriff oder path:…" onChange={(e) => change({ ...group, query: e.target.value })} />
-      <button className="icon-btn" onClick={remove} title="Gruppe entfernen">
+      <button className="gp-color" style={{ background: series[group.color] }} onClick={() => setPicking((p) => !p)} title={t('Farbe')} />
+      <input value={group.query} placeholder={t('Suchbegriff oder path:…')} onChange={(e) => change({ ...group, query: e.target.value })} />
+      <button className="icon-btn" onClick={remove} title={t('Gruppe entfernen')}>
         <Icon name="x" />
       </button>
       {picking && (

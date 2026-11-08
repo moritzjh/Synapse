@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Mask } from '../api'
 import { Icon } from '../components/Icons'
 import { uid } from './doc'
+import { t } from '../i18n'
 
 interface Draft {
   x0: number
@@ -94,7 +95,7 @@ function ImageView({ node, updateAttributes, selected, editor }: ReactNodeViewPr
                   e.stopPropagation()
                   setActive(m.id)
                 }}
-                title={m.label || `Bereich ${i + 1}`}
+                title={m.label || t('Bereich {n}', { n: i + 1 })}
               >
                 <span>{editing && m.label ? m.label : i + 1}</span>
               </div>
@@ -108,21 +109,21 @@ function ImageView({ node, updateAttributes, selected, editor }: ReactNodeViewPr
         <div className="occl-toolbar">
           {editing ? (
             <>
-              <span className="occl-hint">Rechteck ziehen = Bereich abdecken · Entf löscht</span>
+              <span className="occl-hint">{t('Rechteck ziehen = Bereich abdecken · Entf löscht')}</span>
               {activeMask && (
                 <input
                   className="occl-label"
-                  placeholder="Antwort (optional)"
+                  placeholder={t('Antwort (optional)')}
                   value={activeMask.label ?? ''}
                   onChange={(e) => setMasks(masks.map((m) => (m.id === active ? { ...m, label: e.target.value } : m)))}
                   onKeyDown={(e) => e.stopPropagation()}
                 />
               )}
-              <button onClick={() => setEditing(false)}>Fertig</button>
+              <button onClick={() => setEditing(false)}>{t('Fertig')}</button>
             </>
           ) : (
-            <button onClick={() => setEditing(true)} title="Bereiche abdecken – daraus wird eine Karteikarte">
-              <Icon name="image" /> {masks.length ? `${masks.length} Bereiche · bearbeiten` : 'Abdecken'}
+            <button onClick={() => setEditing(true)} title={t('Bereiche abdecken – daraus wird eine Karteikarte')}>
+              <Icon name="image" /> {masks.length ? t('{n} Bereiche · bearbeiten', { n: masks.length }) : t('Abdecken')}
             </button>
           )}
         </div>

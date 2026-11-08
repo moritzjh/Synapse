@@ -4,6 +4,7 @@ import Crumbs from './Crumbs'
 import { FolderGlyph, FolderPicker } from './FolderIcon'
 import { Icon } from './Icons'
 import { baseOf, buildTree, parentOf, type TreeNode } from './tree'
+import { locale, t } from '../i18n'
 
 interface Props {
   path: string
@@ -15,7 +16,11 @@ interface Props {
   onChanged: () => void
 }
 
-const dateFmt = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })
+const dateFmt = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' })
+
+const folderCount = (n: number) => (n === 1 ? t('1 Ordner') : t('{n} Ordner', { n }))
+const noteCount = (n: number) => (n === 1 ? t('1 Notiz') : t('{n} Notizen', { n }))
+const cardCount = (n: number) => (n === 1 ? t('1 Karte') : t('{n} Karten', { n }))
 
 function find(nodes: TreeNode[], key: string): TreeNode | undefined {
   for (const n of nodes) {
@@ -30,7 +35,7 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
   const nodes = useMemo(() => buildTree(tree), [tree])
   const folder = path ? find(nodes, path) : undefined
   const children = path ? folder?.children ?? [] : nodes
-  const name = path ? baseOf(path) : 'Notizen'
+  const name = path ? baseOf(path) : t('Notizen')
   const meta = tree.folder_meta?.[path]
   const [picking, setPicking] = useState(false)
   const [stats, setStats] = useState<ReviewStats | null>(null)
@@ -47,15 +52,15 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
     return (
       <div className="scroll">
         <div className="empty-state">
-          <p>Diesen Ordner gibt es nicht mehr.</p>
-          <button className="btn" onClick={() => onFolder(parentOf(path))}>Zurück</button>
+          <p>{t('Diesen Ordner gibt es nicht mehr.')}</p>
+          <button className="btn" onClick={() => onFolder(parentOf(path))}>{t('Zurück')}</button>
         </div>
       </div>
     )
   }
 
   const newFolder = async () => {
-    const n = prompt('Name des Unterordners')
+    const n = prompt(t('Name des Unterordners'))
     if (!n?.trim()) return
     await api.createFolder(path ? `${path}/${n.trim()}` : n.trim())
     onChanged()
@@ -64,7 +69,7 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
   const count = (node: TreeNode) => {
     const notesIn = tree.notes.filter((n) => n.path.startsWith(node.key + '/')).length
     const folders = node.children.filter((c) => c.kind === 'folder').length
-    return [folders && `${folders} Ordner`, `${notesIn} ${notesIn === 1 ? 'Notiz' : 'Notizen'}`]
+    return [folders && folderCount(folders), noteCount(notesIn)]
       .filter(Boolean)
       .join(' · ')
   }
@@ -79,7 +84,7 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
         <div className="folder-head">
           {path ? (
             <div className="folder-icon-wrap">
-              <button className="folder-big" onClick={() => setPicking((p) => !p)} title="Farbe und Symbol ändern">
+              <button className="folder-big" onClick={() => setPicking((p) => !p)} title={t('Farbe und Symbol ändern')}>
                 <FolderGlyph meta={meta} />
               </button>
               {picking && (
@@ -101,20 +106,20 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
 
         <div className="folder-bar">
           <span className="muted">
-            {subfolders.length > 0 && `${subfolders.length} Ordner · `}
-            {inside.length} {inside.length === 1 ? 'Notiz' : 'Notizen'}
-            {stats && stats.total > 0 && ` · ${stats.total} ${stats.total === 1 ? 'Karte' : 'Karten'}`}
+            {subfolders.length > 0 && `${folderCount(subfolders.length)} · `}
+            {noteCount(inside.length)}
+            {stats && stats.total > 0 && ` · ${cardCount(stats.total)}`}
           </span>
           <span className="folder-actions">
             <button className="btn ghost" onClick={() => onCreateNote({ folder: path || undefined })}>
-              <Icon name="plus" /> Notiz
+              <Icon name="plus" /> {t('Notiz')}
             </button>
             <button className="btn ghost" onClick={newFolder}>
-              <Icon name="folder" /> Unterordner
+              <Icon name="folder" /> {t('Unterordner')}
             </button>
             {stats && stats.total > 0 && (
               <button className="btn study-btn" onClick={() => onStudy(path, name)}>
-                <Icon name="cards" /> Lernen
+                <Icon name="cards" /> {t('Lernen')}
                 {toStudy > 0 && <span className="study-btn-count">{toStudy}</span>}
               </button>
             )}
@@ -140,7 +145,7 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
                 <button onClick={() => onNote(n.note!.id)}>
                   <Icon name="note" />
                   <span className={`folder-note-title ${n.note!.title.trim() ? '' : 'muted'}`}>{titleOf(n.note!.title)}</span>
-                  {n.children.length > 0 && <span className="folder-note-sub">{n.children.length} Unterseiten</span>}
+                  {n.children.length > 0 && <span className="folder-note-sub">{n.children.length === 1 ? t('1 Unterseite') : t('{n} Unterseiten', { n: n.children.length })}</span>}
                   <span className="folder-note-date">{dateFmt.format(n.note!.updated_at)}</span>
                 </button>
               </li>
@@ -150,8 +155,8 @@ export default function FolderPage({ path, tree, onFolder, onNote, onCreateNote,
 
         {!subfolders.length && !notes.length && (
           <div className="folder-empty">
-            <p>Dieser Ordner ist leer.</p>
-            <button className="btn" onClick={() => onCreateNote({ folder: path || undefined })}>Erste Notiz anlegen</button>
+            <p>{t('Dieser Ordner ist leer.')}</p>
+            <button className="btn" onClick={() => onCreateNote({ folder: path || undefined })}>{t('Erste Notiz anlegen')}</button>
           </div>
         )}
       </div>

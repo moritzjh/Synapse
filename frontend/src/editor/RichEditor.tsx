@@ -21,6 +21,7 @@ import { BlockBackspace, CardTyping, CaretMargin } from './typing'
 import { BlockFormula, InlineFormula, editMath, katexOptions } from './Math'
 import { BlockHandle, TARGETS, applyTarget, type Target } from './BlockHandle'
 import type { Doc } from './doc'
+import { t } from '../i18n'
 
 export { toDoc } from './doc'
 export type { Doc } from './doc'
@@ -68,12 +69,12 @@ export default function RichEditor(props: Props) {
       Placeholder.configure({
         includeChildren: true,
         placeholder: ({ node, editor, pos }) => {
-          if (node.type.name === 'heading') return `Überschrift ${node.attrs.level}`
-          if (node.type.name === 'detailsSummary') return 'Titel'
+          if (node.type.name === 'heading') return t('Überschrift {level}', { level: node.attrs.level })
+          if (node.type.name === 'detailsSummary') return t('Titel')
           const parent = editor.state.doc.resolve(pos).parent.type.name
-          if (parent === 'listItem' || parent === 'taskItem') return 'Liste'
-          if (parent === 'blockquote') return 'Zitat'
-          return 'Schreibe, oder tippe / für Blöcke'
+          if (parent === 'listItem' || parent === 'taskItem') return t('Liste')
+          if (parent === 'blockquote') return t('Zitat')
+          return t('Schreibe, oder tippe / für Blöcke')
         },
       }),
       SyntaxHighlight.configure({
@@ -162,7 +163,7 @@ function FormatMenu({ editor }: { editor: Editor }) {
   }
   const link = () => {
     const prev = editor.getAttributes('link').href as string | undefined
-    const href = prompt('Link-Adresse', prev ?? 'https://')
+    const href = prompt(t('Link-Adresse'), prev ?? 'https://')
     if (href === null) return
     if (!href) c().unsetLink().run()
     else c().extendMarkRange('link').setLink({ href }).run()
@@ -180,31 +181,31 @@ function FormatMenu({ editor }: { editor: Editor }) {
       }
     >
       <div className="bubble">
-        <Btn on={s.bold} title="Fett (Strg+B)" run={() => c().toggleBold().run()}><b>B</b></Btn>
-        <Btn on={s.italic} title="Kursiv (Strg+I)" run={() => c().toggleItalic().run()}><i>I</i></Btn>
-        <Btn on={s.underline} title="Unterstrichen (Strg+U)" run={() => c().toggleUnderline().run()}><u>U</u></Btn>
-        <Btn on={s.strike} title="Durchgestrichen" run={() => c().toggleStrike().run()}><s>S</s></Btn>
+        <Btn on={s.bold} title={t('Fett (Strg+B)')} run={() => c().toggleBold().run()}><b>B</b></Btn>
+        <Btn on={s.italic} title={t('Kursiv (Strg+I)')} run={() => c().toggleItalic().run()}><i>I</i></Btn>
+        <Btn on={s.underline} title={t('Unterstrichen (Strg+U)')} run={() => c().toggleUnderline().run()}><u>U</u></Btn>
+        <Btn on={s.strike} title={t('Durchgestrichen')} run={() => c().toggleStrike().run()}><s>S</s></Btn>
         <Btn on={s.code} title="Code" run={() => c().toggleCode().run()}>{'<>'}</Btn>
-        <Btn on={s.highlight} title="Markieren" run={() => c().toggleHighlight().run()}><span className="hl">M</span></Btn>
+        <Btn on={s.highlight} title={t('Markieren')} run={() => c().toggleHighlight().run()}><span className="hl">M</span></Btn>
         <Btn title="Link" run={link}>↗</Btn>
         <span className="sep" />
         <span className="bubble-type">
-          <Btn title="Block umwandeln" run={() => setTypeOpen((o) => !o)}>
-            {TARGETS.find((t) => t.id === s.type)?.label ?? 'Text'} ▾
+          <Btn title={t('Block umwandeln')} run={() => setTypeOpen((o) => !o)}>
+            {TARGETS.find((x) => x.id === s.type)?.label ?? t('Text')} ▾
           </Btn>
           {typeOpen && (
             <span className="bubble-type-list">
-              {TARGETS.map((t) => (
-                <Btn key={t.id} on={t.id === s.type} title={t.label} run={() => { applyTarget(c(), t.id).run(); setTypeOpen(false) }}>
-                  <span className="bm-icon">{t.icon}</span>{t.label}
+              {TARGETS.map((x) => (
+                <Btn key={x.id} on={x.id === s.type} title={x.label} run={() => { applyTarget(c(), x.id).run(); setTypeOpen(false) }}>
+                  <span className="bm-icon">{x.icon}</span>{x.label}
                 </Btn>
               ))}
             </span>
           )}
         </span>
         <span className="sep" />
-        <Btn title="Als Lücke abdecken {{ }}" run={cloze}>Lücke</Btn>
-        <Btn title="Zeile zur Karteikarte machen: Auswahl wird zur Antwort" run={toCard}>Karte</Btn>
+        <Btn title={t('Als Lücke abdecken {{ }}')} run={cloze}>{t('Lücke')}</Btn>
+        <Btn title={t('Zeile zur Karteikarte machen: Auswahl wird zur Antwort')} run={toCard}>{t('Karte')}</Btn>
       </div>
     </BubbleMenu>
   )
@@ -220,13 +221,13 @@ function TableMenu({ editor }: { editor: Editor }) {
       shouldShow={({ editor: e, from, to }) => e.isActive('table') && from === to}
     >
       <div className="bubble">
-        <Btn title="Zeile darunter" run={() => c().addRowAfter().run()}>+ Zeile</Btn>
-        <Btn title="Spalte rechts" run={() => c().addColumnAfter().run()}>+ Spalte</Btn>
+        <Btn title={t('Zeile darunter')} run={() => c().addRowAfter().run()}>{t('+ Zeile')}</Btn>
+        <Btn title={t('Spalte rechts')} run={() => c().addColumnAfter().run()}>{t('+ Spalte')}</Btn>
         <span className="sep" />
-        <Btn title="Zeile löschen" run={() => c().deleteRow().run()}>− Zeile</Btn>
-        <Btn title="Spalte löschen" run={() => c().deleteColumn().run()}>− Spalte</Btn>
+        <Btn title={t('Zeile löschen')} run={() => c().deleteRow().run()}>{t('− Zeile')}</Btn>
+        <Btn title={t('Spalte löschen')} run={() => c().deleteColumn().run()}>{t('− Spalte')}</Btn>
         <span className="sep" />
-        <Btn title="Tabelle löschen" run={() => c().deleteTable().run()}>Löschen</Btn>
+        <Btn title={t('Tabelle löschen')} run={() => c().deleteTable().run()}>{t('Löschen')}</Btn>
       </div>
     </BubbleMenu>
   )

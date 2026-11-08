@@ -1,4 +1,5 @@
 import { uid } from '../doc'
+import { lang, t } from '../../i18n'
 import { compile, evaluate, FormulaError, show, type Value } from './formula'
 import type { Cell, DbAttrs, Filter, FilterOp, Option, Property, PropType, Row, View } from './types'
 
@@ -31,7 +32,7 @@ export function cellValue(db: DbAttrs, row: Row, prop: Property, depth = 0): Val
 const compiled = new Map<string, ReturnType<typeof compile> | FormulaError>()
 
 export function formulaValue(db: DbAttrs, row: Row, prop: Property, depth = 0): Value {
-  if (depth > 8) throw new FormulaError('Formeln verweisen im Kreis')
+  if (depth > 8) throw new FormulaError(t('Formeln verweisen im Kreis'))
   const src = prop.formula ?? ''
   if (!src.trim()) return null
   let ast = compiled.get(src)
@@ -46,7 +47,7 @@ export function formulaValue(db: DbAttrs, row: Row, prop: Property, depth = 0): 
   if (ast instanceof FormulaError) throw ast
   return evaluate(ast, (name) => {
     const p = db.properties.find((x) => x.name === name)
-    if (!p) throw new FormulaError(`Eigenschaft „${name}“ gibt es nicht`)
+    if (!p) throw new FormulaError(t('Eigenschaft „{name}“ gibt es nicht', { name }))
     return cellValue(db, row, p, depth + 1)
   })
 }
@@ -86,16 +87,16 @@ export const FILTER_OPS: Record<PropType, FilterOp[]> = {
 }
 
 export const OP_LABEL: Record<FilterOp, string> = {
-  contains: 'enthält',
-  not_contains: 'enthält nicht',
-  is: 'ist',
-  is_not: 'ist nicht',
-  gt: 'größer / nach',
-  lt: 'kleiner / vor',
-  empty: 'ist leer',
-  not_empty: 'ist nicht leer',
-  checked: 'ist angehakt',
-  unchecked: 'ist nicht angehakt',
+  contains: t('enthält'),
+  not_contains: t('enthält nicht'),
+  is: t('ist'),
+  is_not: t('ist nicht'),
+  gt: t('größer / nach'),
+  lt: t('kleiner / vor'),
+  empty: t('ist leer'),
+  not_empty: t('ist nicht leer'),
+  checked: t('ist angehakt'),
+  unchecked: t('ist nicht angehakt'),
 }
 
 function matches(db: DbAttrs, row: Row, f: Filter): boolean {
@@ -146,7 +147,7 @@ export function visibleRows(db: DbAttrs, view: View): Row[] {
     }
     rows = [...rows].sort((a, b) => {
       const x = key(a), y = key(b)
-      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'de')
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), lang)
       return sort.dir === 'asc' ? c : -c
     })
   }
@@ -159,9 +160,9 @@ export function newProperty(type: PropType, name: string): Property {
   const p: Property = { id: uid(), name, type }
   if (type === 'status')
     p.options = [
-      { id: uid(), name: 'Offen', color: 'gray' },
-      { id: uid(), name: 'In Arbeit', color: 'blue' },
-      { id: uid(), name: 'Erledigt', color: 'green' },
+      { id: uid(), name: t('Offen'), color: 'gray' },
+      { id: uid(), name: t('In Arbeit'), color: 'blue' },
+      { id: uid(), name: t('Erledigt'), color: 'green' },
     ]
   else if (type === 'select' || type === 'multi_select') p.options = []
   else if (type === 'formula') p.formula = ''
@@ -170,7 +171,7 @@ export function newProperty(type: PropType, name: string): Property {
 
 export function newView(type: View['type'], db: DbAttrs): View {
   const groupable = db.properties.find((p) => p.type === 'status' || p.type === 'select')
-  const names = { table: 'Tabelle', board: 'Board', chart: 'Diagramm' }
+  const names = { table: t('Tabelle'), board: t('Board'), chart: t('Grafik') }
   return {
     id: uid(),
     name: names[type],
@@ -182,8 +183,8 @@ export function newView(type: View['type'], db: DbAttrs): View {
 }
 
 export function emptyDatabase(): DbAttrs {
-  const title = newProperty('title', 'Name')
-  const db: DbAttrs = { id: uid(), title: 'Datenbank', properties: [title], rows: [], views: [] }
+  const title = newProperty('title', t('Name'))
+  const db: DbAttrs = { id: uid(), title: t('Datenbank'), properties: [title], rows: [], views: [] }
   db.rows = [1, 2, 3].map(() => ({ id: uid(), cells: {} }))
   db.views = [newView('table', db)]
   return db
@@ -191,37 +192,38 @@ export function emptyDatabase(): DbAttrs {
 
 /** Task tracker template: status board, priorities, due dates, a countdown formula and a chart. */
 export function taskTracker(): DbAttrs {
-  const task = newProperty('title', 'Aufgabe')
-  const status = newProperty('status', 'Status')
+  const task = newProperty('title', t('Aufgabe'))
+  const status = newProperty('status', t('Status'))
   const prio: Property = {
     id: uid(),
-    name: 'Priorität',
+    name: t('Priorität'),
     type: 'select',
     options: [
-      { id: uid(), name: 'Hoch', color: 'red' },
-      { id: uid(), name: 'Mittel', color: 'yellow' },
-      { id: uid(), name: 'Niedrig', color: 'gray' },
+      { id: uid(), name: t('Hoch'), color: 'red' },
+      { id: uid(), name: t('Mittel'), color: 'yellow' },
+      { id: uid(), name: t('Niedrig'), color: 'gray' },
     ],
   }
-  const due = newProperty('date', 'Fällig')
+  const due = newProperty('date', t('Fällig'))
   const left: Property = {
     id: uid(),
-    name: 'Tage übrig',
+    name: t('Tage übrig'),
     type: 'formula',
-    formula: 'if(prop("Status") == "Erledigt", "✓", if(empty(prop("Fällig")), "", dateBetween(prop("Fällig"), today(), "days")))',
+    // property / option names follow the (possibly translated) defaults above
+    formula: `if(prop("${status.name}") == "${(status.options as Option[])[2].name}", "✓", if(empty(prop("${due.name}")), "", dateBetween(prop("${due.name}"), today(), "days")))`,
   }
   const o = (p: Property, i: number) => (p.options as Option[])[i].id
   const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10)
   const rows: Row[] = [
-    { id: uid(), cells: { [task.id]: 'Kapitel 1 zusammenfassen', [status.id]: o(status, 2), [prio.id]: o(prio, 1), [due.id]: inDays(-2) } },
-    { id: uid(), cells: { [task.id]: 'Karteikarten erstellen', [status.id]: o(status, 1), [prio.id]: o(prio, 0), [due.id]: inDays(3) } },
-    { id: uid(), cells: { [task.id]: 'Altklausur rechnen', [status.id]: o(status, 0), [prio.id]: o(prio, 0), [due.id]: inDays(7) } },
+    { id: uid(), cells: { [task.id]: t('Kapitel 1 zusammenfassen'), [status.id]: o(status, 2), [prio.id]: o(prio, 1), [due.id]: inDays(-2) } },
+    { id: uid(), cells: { [task.id]: t('Karteikarten erstellen'), [status.id]: o(status, 1), [prio.id]: o(prio, 0), [due.id]: inDays(3) } },
+    { id: uid(), cells: { [task.id]: t('Altklausur rechnen'), [status.id]: o(status, 0), [prio.id]: o(prio, 0), [due.id]: inDays(7) } },
   ]
-  const db: DbAttrs = { id: uid(), title: 'Aufgaben', properties: [task, status, prio, due, left], rows, views: [] }
+  const db: DbAttrs = { id: uid(), title: t('Aufgaben'), properties: [task, status, prio, due, left], rows, views: [] }
   db.views = [
     newView('table', db),
     { ...newView('board', db), groupBy: status.id },
-    { ...newView('chart', db), name: 'Fortschritt', chart: { kind: 'donut', x: status.id, agg: 'count' } },
+    { ...newView('chart', db), name: t('Fortschritt'), chart: { kind: 'donut', x: status.id, agg: 'count' } },
   ]
   return db
 }

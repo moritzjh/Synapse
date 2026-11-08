@@ -4,6 +4,7 @@ import { forceCollide, forceX, forceY } from 'd3-force'
 import { api, type GraphData } from '../api'
 import { Icon } from './Icons'
 import GraphPanel from './graph/GraphPanel'
+import { locale, t } from '../i18n'
 import { loadSettings, matchesGroup, palette, saveSettings, type Palette, type Settings } from './graph/settings'
 
 interface GNode {
@@ -23,7 +24,10 @@ interface GLink {
   weight: number
 }
 
+// Group names are identifiers (stored in settings.hiddenGroups) – translate only for display.
 const ROOT_GROUP = 'Ohne Ordner'
+const NOTES_GROUP = 'Notizen'
+const groupLabel = (g: string) => (g === ROOT_GROUP || g === NOTES_GROUP ? t(g) : g)
 const idOf = (v: number | GNode) => (typeof v === 'object' ? v.id : v)
 
 /** Folder a note belongs to for colouring: top level, or top level + one subfolder. */
@@ -93,7 +97,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
   const folders = useMemo(
     () =>
       [...new Set((raw?.nodes ?? []).map((n) => folderOf(n.path, depth)))].sort((a, b) =>
-        a === ROOT_GROUP ? 1 : b === ROOT_GROUP ? -1 : a.localeCompare(b, 'de'),
+        a === ROOT_GROUP ? 1 : b === ROOT_GROUP ? -1 : a.localeCompare(b, locale),
       ),
     [raw, depth],
   )
@@ -107,7 +111,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
         const i = folders.indexOf(f)
         return { group: f, color: f === ROOT_GROUP || i >= 8 ? pal.neutral : pal.series[i] }
       }
-      return { group: 'Notizen', color: pal.neutral }
+      return { group: NOTES_GROUP, color: pal.neutral }
     },
     [settings.groups, settings.autoGroups, depth, folders, pal],
   )
@@ -174,7 +178,7 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
     const out = {
       nodes: nodes.map((n): GNode => {
         const p = prev.get(n.id)
-        return { id: n.id, title: n.title.trim() || 'Ohne Titel', group: n.group, color: n.color, degree: degree.get(n.id) ?? 0, x: p?.x, y: p?.y }
+        return { id: n.id, title: n.title.trim() || t('Ohne Titel'), group: n.group, color: n.color, degree: degree.get(n.id) ?? 0, x: p?.x, y: p?.y }
       }),
       links: links.map((l) => ({ ...l })),
     }
@@ -348,27 +352,27 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
       <div className="graph-bar">
         <label className="graph-search">
           <Icon name="search" />
-          <input placeholder="Im Graph suchen" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder={t('Im Graph suchen')} value={query} onChange={(e) => setQuery(e.target.value)} />
           {matches && <span className="graph-count">{matches.size}</span>}
         </label>
         {focusTitle && (
           <span className="graph-focus">
             <Icon name="target" /> {focusTitle}
-            <select value={settings.depth} onChange={(e) => set('depth', Number(e.target.value))} title="Tiefe">
-              {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} {d === 1 ? 'Schritt' : 'Schritte'}</option>)}
+            <select value={settings.depth} onChange={(e) => set('depth', Number(e.target.value))} title={t('Tiefe')}>
+              {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d === 1 ? t('1 Schritt') : t('{n} Schritte', { n: d })}</option>)}
             </select>
-            <button className="icon-btn" title="Ganzen Graph zeigen" onClick={() => onFocus(undefined)}><Icon name="x" /></button>
+            <button className="icon-btn" title={t('Ganzen Graph zeigen')} onClick={() => onFocus(undefined)}><Icon name="x" /></button>
           </span>
         )}
         <span className="spacer" />
         <span className="graph-actions">
-          <button className="icon-btn" title="Zeitraffer: Notizen in der Reihenfolge ihrer Entstehung" onClick={animate} disabled={reveal !== null}>
+          <button className="icon-btn" title={t('Zeitraffer: Notizen in der Reihenfolge ihrer Entstehung')} onClick={animate} disabled={reveal !== null}>
             <Icon name="play" />
           </button>
-          <button className="icon-btn" title="Alles zeigen" onClick={() => fg.current?.zoomToFit(500, 90)}>
+          <button className="icon-btn" title={t('Alles zeigen')} onClick={() => fg.current?.zoomToFit(500, 90)}>
             <Icon name="fit" />
           </button>
-          <button className={`icon-btn ${panel ? 'on' : ''}`} title="Graph-Einstellungen" onClick={() => setPanel((p) => !p)}>
+          <button className={`icon-btn ${panel ? 'on' : ''}`} title={t('Graph-Einstellungen')} onClick={() => setPanel((p) => !p)}>
             <Icon name="sliders" />
           </button>
         </span>
@@ -386,10 +390,10 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
               <button
                 key={name}
                 className={off ? 'off' : ''}
-                title={off ? 'Einblenden' : 'Ausblenden'}
+                title={off ? t('Einblenden') : t('Ausblenden')}
                 onClick={() => set('hiddenGroups', off ? settings.hiddenGroups.filter((x) => x !== name) : [...settings.hiddenGroups, name])}
               >
-                <i style={{ background: color, boxShadow: settings.glow > 0 ? `0 0 6px ${color}` : 'none' }} /> {name}
+                <i style={{ background: color, boxShadow: settings.glow > 0 ? `0 0 6px ${color}` : 'none' }} /> {groupLabel(name)}
               </button>
             )
           })}
@@ -488,8 +492,8 @@ export default function GraphView({ focus, onOpen, onFocus }: { focus?: number; 
         }}
         onBackgroundClick={() => setQuery('')}
       />
-      {reveal !== null && <div className="graph-timelapse">{reveal} / {order.length} Notizen</div>}
-      <div className="graph-hint">Klick öffnet · Rechtsklick zeigt die Umgebung · Ziehen pinnt</div>
+      {reveal !== null && <div className="graph-timelapse">{t('{n} / {total} Notizen', { n: reveal, total: order.length })}</div>}
+      <div className="graph-hint">{t('Klick öffnet · Rechtsklick zeigt die Umgebung · Ziehen pinnt')}</div>
     </div>
   )
 }

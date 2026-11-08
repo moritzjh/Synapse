@@ -8,6 +8,7 @@ import Exams from './components/Exams'
 import FolderPage from './components/FolderPage'
 import AnkiImport from './import/AnkiImport'
 import type { StudyScope } from './components/Review'
+import { t } from './i18n'
 
 export type View =
   | { kind: 'note'; id: number }
@@ -39,7 +40,7 @@ export default function App() {
       setError(null)
       refreshMeta()
     } catch (e) {
-      setError(`Backend nicht erreichbar (${(e as Error).message})`)
+      setError(t('Backend nicht erreichbar ({message})', { message: (e as Error).message }))
     }
   }, [refreshMeta])
 
@@ -136,8 +137,8 @@ export default function App() {
           <Exams exams={exams} notes={notes} onChanged={refreshMeta} onStudy={(exam) => setView({ kind: 'review', exam })} />
         ) : (
           <div className="empty-state">
-            <p>Wähle eine Notiz oder lege eine neue an.</p>
-            <button className="btn" onClick={() => createNote()}>Neue Notiz</button>
+            <p>{t('Wähle eine Notiz oder lege eine neue an.')}</p>
+            <button className="btn" onClick={() => createNote()}>{t('Neue Notiz')}</button>
           </div>
         )}
       </main>

@@ -4,6 +4,7 @@ import { FolderGlyph, FolderPicker } from './FolderIcon'
 import type { View } from '../App'
 import { Icon } from './Icons'
 import { ancestors, baseOf, buildTree, parentOf, type TreeNode } from './tree'
+import { lang, setLang, t } from '../i18n'
 
 interface Props {
   tree: Tree
@@ -89,7 +90,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
     })
 
   const newFolder = async (parent: string) => {
-    const name = prompt('Name des Ordners')
+    const name = prompt(t('Name des Ordners'))
     if (!name?.trim()) return
     const { path } = await api.createFolder(parent ? `${parent}/${name.trim()}` : name.trim())
     setExpanded((e) => new Set([...e, parent, path]))
@@ -105,11 +106,11 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
   }
 
   const deleteNote = (id: number, name: string) => {
-    if (confirm(`„${name}“ löschen? (Die Datei landet im Papierkorb .trash)`)) onDeleteNote(id)
+    if (confirm(t('„{name}“ löschen? (Die Datei landet im Papierkorb .trash)', { name }))) onDeleteNote(id)
   }
 
   const deleteFolder = async (key: string) => {
-    if (!confirm(`Ordner „${baseOf(key)}“ mit allen Notizen löschen? (Dateien landen im Papierkorb .trash)`)) return
+    if (!confirm(t('Ordner „{name}“ mit allen Notizen löschen? (Dateien landen im Papierkorb .trash)', { name: baseOf(key) }))) return
     await api.deleteFolder(key)
     if (selectedFolder && (selectedFolder === key || selectedFolder.startsWith(key + '/'))) onNavigate({ kind: 'folder', path: parentOf(key) })
     onChanged()
@@ -207,14 +208,14 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
           <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
             <button
               className="icon-btn"
-              title={isNote ? 'Karten dieser Notiz lernen' : 'Karten dieses Ordners lernen'}
+              title={isNote ? t('Karten dieser Notiz lernen') : t('Karten dieses Ordners lernen')}
               onClick={() => onStudy(isNote ? node.note!.path : node.key, node.name)}
             >
               <Icon name="cards" />
             </button>
             <button
               className="icon-btn"
-              title={isNote ? 'Unterseite anlegen' : 'Notiz in diesem Ordner'}
+              title={isNote ? t('Unterseite anlegen') : t('Notiz in diesem Ordner')}
               onClick={() => {
                 setExpanded((x) => new Set([...x, node.key]))
                 onCreateNote(isNote ? { parentId: node.note!.id } : { folder: node.key })
@@ -222,7 +223,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
             >
               <Icon name="plus" />
             </button>
-            <button className="icon-btn" title="Mehr" onClick={(e) => setMenu({ node, x: e.clientX, y: e.clientY })}>
+            <button className="icon-btn" title={t('Mehr')} onClick={(e) => setMenu({ node, x: e.clientX, y: e.clientY })}>
               <Icon name="more" />
             </button>
           </span>
@@ -247,25 +248,25 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
       </div>
       <label className="side-search">
         <Icon name="search" />
-        <input placeholder="Suchen" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input placeholder={t('Suchen')} value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
       <nav className="nav">
-        {nav('review', 'cards', 'Lernen', due)}
-        {nav('exams', 'calendar', 'Prüfungen')}
-        {nav('graph', 'graph', 'Graph')}
+        {nav('review', 'cards', t('Lernen'), due)}
+        {nav('exams', 'calendar', t('Prüfungen'))}
+        {nav('graph', 'graph', t('Graph'))}
       </nav>
 
       <div className={`side-section ${dropTarget === '' ? 'drop' : ''}`} {...dropProps('')}>
-        <span>{query.trim() ? 'Treffer' : 'Notizen'}</span>
+        <span>{query.trim() ? t('Treffer') : t('Notizen')}</span>
         {!query.trim() && (
           <span className="side-section-actions">
-            <button className="icon-btn" title="Aus Anki importieren (.apkg)" onClick={onImport}>
+            <button className="icon-btn" title={t('Aus Anki importieren (.apkg)')} onClick={onImport}>
               <Icon name="import" />
             </button>
-            <button className="icon-btn" title="Neuer Ordner" onClick={() => newFolder('')}>
+            <button className="icon-btn" title={t('Neuer Ordner')} onClick={() => newFolder('')}>
               <Icon name="folder" />
             </button>
-            <button className="icon-btn" title="Neue Notiz" onClick={() => onCreateNote()}>
+            <button className="icon-btn" title={t('Neue Notiz')} onClick={() => onCreateNote()}>
               <Icon name="plus" />
             </button>
           </span>
@@ -279,11 +280,11 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
               <button onClick={() => onNavigate({ kind: 'note', id: n.id })} title={titleOf(n.title)}>
                 {titleOf(n.title)}
                 {n.snippet && <span className="snippet" dangerouslySetInnerHTML={{ __html: escapeSnippet(n.snippet) }} />}
-                {n.semantic && <span className="snippet">ähnlicher Inhalt</span>}
+                {n.semantic && <span className="snippet">{t('ähnlicher Inhalt')}</span>}
               </button>
             </li>
           ))}
-          {hits.length === 0 && <li className="muted" style={{ padding: '4px 10px' }}>Nichts gefunden</li>}
+          {hits.length === 0 && <li className="muted" style={{ padding: '4px 10px' }}>{t('Nichts gefunden')}</li>}
         </ul>
       ) : (
         <ul className="tree" {...dropProps('')}>
@@ -295,27 +296,27 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
         <div className="context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
           {menu.node.kind === 'folder' ? (
             <>
-              <button onClick={() => { setMenu(null); onCreateNote({ folder: menu.node.key }) }}>Neue Notiz</button>
-              <button onClick={() => { setMenu(null); newFolder(menu.node.key) }}>Neuer Unterordner</button>
-              <button onClick={() => { setMenu(null); setRenaming(menu.node.key) }}>Umbenennen</button>
-              <button onClick={() => { setMenu(null); setPicker({ key: menu.node.key, x: menu.x, y: menu.y }) }}>Farbe &amp; Symbol</button>
-              <button onClick={() => { setMenu(null); onStudy(menu.node.key, menu.node.name) }}>Karten lernen</button>
+              <button onClick={() => { setMenu(null); onCreateNote({ folder: menu.node.key }) }}>{t('Neue Notiz')}</button>
+              <button onClick={() => { setMenu(null); newFolder(menu.node.key) }}>{t('Neuer Unterordner')}</button>
+              <button onClick={() => { setMenu(null); setRenaming(menu.node.key) }}>{t('Umbenennen')}</button>
+              <button onClick={() => { setMenu(null); setPicker({ key: menu.node.key, x: menu.x, y: menu.y }) }}>{t('Farbe & Symbol')}</button>
+              <button onClick={() => { setMenu(null); onStudy(menu.node.key, menu.node.name) }}>{t('Karten lernen')}</button>
               <hr />
-              <button className="danger" onClick={() => { setMenu(null); deleteFolder(menu.node.key) }}>Löschen</button>
+              <button className="danger" onClick={() => { setMenu(null); deleteFolder(menu.node.key) }}>{t('Löschen')}</button>
             </>
           ) : (
             <>
-              <button onClick={() => { setMenu(null); onCreateNote({ parentId: menu.node.note!.id }) }}>Unterseite anlegen</button>
-              <button onClick={() => { setMenu(null); newFolder(parentOf(menu.node.key)) }}>Neuer Ordner daneben</button>
-              <button onClick={() => { setMenu(null); onNavigate({ kind: 'graph', focus: menu.node.note!.id }) }}>Lokaler Graph</button>
-              <button onClick={() => { setMenu(null); onStudy(menu.node.note!.path, menu.node.name) }}>Karten lernen</button>
+              <button onClick={() => { setMenu(null); onCreateNote({ parentId: menu.node.note!.id }) }}>{t('Unterseite anlegen')}</button>
+              <button onClick={() => { setMenu(null); newFolder(parentOf(menu.node.key)) }}>{t('Neuer Ordner daneben')}</button>
+              <button onClick={() => { setMenu(null); onNavigate({ kind: 'graph', focus: menu.node.note!.id }) }}>{t('Lokaler Graph')}</button>
+              <button onClick={() => { setMenu(null); onStudy(menu.node.note!.path, menu.node.name) }}>{t('Karten lernen')}</button>
               {parentOf(menu.node.key) && (
                 <button onClick={async () => { setMenu(null); await api.moveNote(menu.node.note!.id, ''); onChanged() }}>
-                  Nach oben verschieben
+                  {t('Nach oben verschieben')}
                 </button>
               )}
               <hr />
-              <button className="danger" onClick={() => { setMenu(null); deleteNote(menu.node.note!.id, menu.node.name) }}>Löschen</button>
+              <button className="danger" onClick={() => { setMenu(null); deleteNote(menu.node.note!.id, menu.node.name) }}>{t('Löschen')}</button>
             </>
           )}
         </div>
@@ -335,9 +336,18 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
       )}
 
       <div className="side-footer" title={status?.vault}>
-        {status?.semantic.enabled ? `${status.semantic.model} · ${status.semantic.indexed} indexiert` : 'Kein Embedding-Modell'}
+        {status?.semantic.enabled
+          ? t('{model} · {n} indexiert', { model: status.semantic.model, n: status.semantic.indexed })
+          : t('Kein Embedding-Modell')}
         <br />
-        {status && `Vault: ${status.vault.split('/').slice(-2).join('/')}`}
+        {status && t('Vault: {path}', { path: status.vault.split('/').slice(-2).join('/') })}
+        <div className="lang-switch" title={t('Sprache')}>
+          {(['de', 'en'] as const).map((l) => (
+            <button key={l} className={lang === l ? 'on' : ''} onClick={() => lang !== l && setLang(l)}>
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
     </aside>
   )
