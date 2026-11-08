@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cardApi, type Card, type Exam, type Mask, type ReviewStats } from '../api'
 import { Icon } from './Icons'
+import MathText from './MathText'
 
 type Rating = 1 | 2 | 3 | 4
 
@@ -223,12 +224,12 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
       <div className="flip">
         <div className="flip-inner">
           <div className="face front">
-            <div className={'fc-q' + long(card.front)}>{clean(card.front)}</div>
+            <div className={'fc-q' + long(card.front)}><MathText text={clean(card.front)} /></div>
           </div>
           <div className="face back" aria-hidden={!allRevealed}>
-            <div className={'fc-q small' + long(card.front)}>{clean(card.front)}</div>
+            <div className={'fc-q small' + long(card.front)}><MathText text={clean(card.front)} /></div>
             <div className="fc-rule" />
-            <div className={'fc-a' + long(card.data.back ?? '')}>{clean(card.data.back ?? '')}</div>
+            <div className={'fc-a' + long(card.data.back ?? '')}><MathText text={clean(card.data.back ?? '')} /></div>
           </div>
         </div>
       </div>
@@ -241,13 +242,13 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
       <div className="fc-body">
         <div className="fc-cloze">
           {card.data.segments!.map((s, i) => {
-            if ('text' in s) return <span key={i}>{clean(s.text)}</span>
+            if ('text' in s) return <span key={i}><MathText text={clean(s.text)} /></span>
             const g = ++gap
             return revealed.has(g) ? (
-              <span key={i} className="gap open">{clean(s.cloze)}</span>
+              <span key={i} className="gap open"><MathText text={clean(s.cloze)} /></span>
             ) : (
               <button key={i} className={`gap ${g === revealed.size ? 'next' : ''}`} onClick={() => reveal(g)} title="Aufdecken">
-                <span>{clean(s.cloze)}</span>
+                <span><MathText text={clean(s.cloze)} /></span>
               </button>
             )
           })}
@@ -259,13 +260,13 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
   if (card.kind === 'list') {
     return (
       <div className="fc-body">
-        <div className="fc-q">{clean(card.front)}</div>
+        <div className="fc-q"><MathText text={clean(card.front)} /></div>
         <ol className="fc-list">
           {card.data.items!.map((item, i) => (
             <li key={i} className={revealed.has(i) ? 'open' : i === revealed.size ? 'next' : ''}>
               <span className="fc-num">{i + 1}</span>
               {revealed.has(i) ? (
-                <span className="fc-item">{clean(item)}</span>
+                <span className="fc-item"><MathText text={clean(item)} /></span>
               ) : (
                 <button className="fc-cover" onClick={() => reveal(i)} aria-label={`Punkt ${i + 1} aufdecken`} />
               )}

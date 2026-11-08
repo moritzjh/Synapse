@@ -8,6 +8,25 @@ import { toDoc } from './doc'
 export interface SyntaxOptions {
   onOpenLink: (title: string) => void
   getNotes: () => NoteSummary[]
+  /** title of the note being edited – never suggested as a link to itself */
+  getSelfTitle: () => string
+}
+
+// ---- link suggestions: plain mentions of other notes' titles -----------------------
+
+let suggestCache = { key: '', re: null as RegExp | null }
+
+/** One regex over all candidate titles, longest first, matching whole words only. */
+function suggestRegex(titles: string[]): RegExp | null {
+  const key = titles.join('\u0000')
+  if (key === suggestCache.key) return suggestCache.re
+  const parts = titles
+    .filter((t) => t.length >= 3 && !/^\d+$/.test(t))
+    .sort((a, b) => b.length - a.length)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const re = parts.length ? new RegExp(`(?<![\\p{L}\\p{N}_])(?:${parts.join('|')})(?![\\p{L}\\p{N}_])`, 'giu') : null
+  suggestCache = { key, re }
+  return re
 }
 
 /**
@@ -79,9 +98,19 @@ function pill(symbol: string, title: string) {
   return el
 }
 
-function decorate(state: EditorState, notes: NoteSummary[]): DecorationSet {
+function decorate(state: EditorState, notes: NoteSummary[], selfTitle: string): DecorationSet {
   const { doc, selection } = state
   const titles = new Set(notes.map((n) => n.title.toLowerCase()))
+
+  // Titles this note already links to are not suggested again; each other title only at its first mention.
+  const linked = new Set<string>([selfTitle.trim().toLowerCase()])
+  doc.descendants((n) => {
+    if (n.isText) for (const m of n.text!.matchAll(WIKILINK)) linked.add(m[1].split(/[|#]/)[0].trim().toLowerCase())
+    if (n.type.name === 'pageLink') linked.add(String(n.attrs.title ?? '').toLowerCase())
+  })
+  const byLower = new Map(notes.filter((n) => n.title.trim()).map((n) => [n.title.toLowerCase(), n.title]))
+  const re = suggestRegex([...byLower.values()].filter((t) => !linked.has(t.toLowerCase())))
+  const suggested = new Set<string>()
   const decos: Decoration[] = []
   const hide = (from: number, to: number) => from < to && decos.push(Decoration.inline(from, to, { class: 'syn-hide' }))
   const cursorIn = (from: number, to: number) => selection.from >= from && selection.to <= to
@@ -116,6 +145,21 @@ function decorate(state: EditorState, notes: NoteSummary[]): DecorationSet {
           title: resolved ? '' : `„${target}“ anlegen`,
         }),
       )
+    }
+
+    // plain mentions of other notes → dotted underline with a "link it" button on hover
+    if (re) {
+      const masked = text.replace(WIKILINK, (m) => '\u0000'.repeat(m.length))
+      for (const m of masked.matchAll(re)) {
+        const key = m[0].toLowerCase()
+        if (suggested.has(key)) continue
+        suggested.add(key)
+        const from = at[m.index!], to = end(m.index! + m[0].length)
+        if (cursorIn(from, to)) continue
+        decos.push(
+          Decoration.inline(from, to, { class: 'link-suggest', 'data-target': byLower.get(key)!, 'data-from': String(from), 'data-to': String(to) }),
+        )
+      }
     }
 
     // {{cloze}}
@@ -171,6 +215,44 @@ function decorate(state: EditorState, notes: NoteSummary[]): DecorationSet {
   return DecorationSet.create(doc, decos)
 }
 
+// ---- "link it" button for suggestions ------------------------------------------------
+
+let suggestEl: HTMLButtonElement | null = null
+let suggestTimer: ReturnType<typeof setTimeout> | undefined
+
+function hideSuggestSoon() {
+  clearTimeout(suggestTimer)
+  suggestTimer = setTimeout(() => {
+    suggestEl?.remove()
+    suggestEl = null
+  }, 350)
+}
+
+function showSuggest(el: HTMLElement, view: EditorView) {
+  clearTimeout(suggestTimer)
+  suggestEl?.remove()
+  const target = el.dataset.target!
+  const from = Number(el.dataset.from), to = Number(el.dataset.to)
+  const r = el.getBoundingClientRect()
+  const btn = document.createElement('button')
+  btn.className = 'link-suggest-btn'
+  btn.textContent = `↗ Mit „${target}“ verlinken`
+  btn.style.left = `${Math.min(r.left, window.innerWidth - 260)}px`
+  btn.style.top = `${r.bottom + 4}px`
+  btn.onmouseenter = () => clearTimeout(suggestTimer)
+  btn.onmouseleave = hideSuggestSoon
+  btn.onmousedown = (e) => {
+    e.preventDefault()
+    const shown = view.state.doc.textBetween(from, to)
+    const link = shown === target ? `[[${target}]]` : `[[${target}|${shown}]]`
+    view.dispatch(view.state.tr.insertText(link, from, to))
+    btn.remove()
+    suggestEl = null
+  }
+  document.body.appendChild(btn)
+  suggestEl = btn
+}
+
 // ---- hover preview of linked notes ------------------------------------------------
 
 const previewCache = new Map<number, string>()
@@ -223,7 +305,7 @@ function plain(node: unknown): string {
 export const SyntaxHighlight = Extension.create<SyntaxOptions>({
   name: 'synapseSyntax',
   addOptions() {
-    return { onOpenLink: () => {}, getNotes: () => [] }
+    return { onOpenLink: () => {}, getNotes: () => [], getSelfTitle: () => '' }
   },
   addProseMirrorPlugins() {
     const options = this.options
@@ -232,9 +314,9 @@ export const SyntaxHighlight = Extension.create<SyntaxOptions>({
       new Plugin<DecorationSet>({
         key,
         state: {
-          init: (_, state) => decorate(state, options.getNotes()),
+          init: (_, state) => decorate(state, options.getNotes(), options.getSelfTitle()),
           apply: (tr, old, _o, state) =>
-            tr.docChanged || tr.selectionSet || tr.getMeta(key) ? decorate(state, options.getNotes()) : old,
+            tr.docChanged || tr.selectionSet || tr.getMeta(key) ? decorate(state, options.getNotes(), options.getSelfTitle()) : old,
         },
         props: {
           decorations(state) {
@@ -248,13 +330,16 @@ export const SyntaxHighlight = Extension.create<SyntaxOptions>({
             return true
           },
           handleDOMEvents: {
-            mouseover(_view, event) {
+            mouseover(view, event) {
               const el = (event.target as HTMLElement).closest('.wikilink:not(.unresolved)') as HTMLElement | null
               if (el) showPreview(el, options.getNotes())
+              const sug = (event.target as HTMLElement).closest('.link-suggest') as HTMLElement | null
+              if (sug) showSuggest(sug, view)
               return false
             },
             mouseout(_view, event) {
               if ((event.target as HTMLElement).closest('.wikilink')) hidePreview()
+              if ((event.target as HTMLElement).closest('.link-suggest')) hideSuggestSoon()
               return false
             },
           },

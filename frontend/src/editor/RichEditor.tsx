@@ -18,6 +18,7 @@ import { SlashCommands, WikilinkSuggest } from './commands'
 import { insertImages } from './upload'
 import { CodeBlock } from './CodeBlock'
 import { BlockBackspace, CardTyping, CaretMargin } from './typing'
+import { BlockFormula, InlineFormula, editMath, katexOptions } from './Math'
 import { BlockHandle, TARGETS, applyTarget, type Target } from './BlockHandle'
 import type { Doc } from './doc'
 
@@ -31,6 +32,7 @@ interface Props {
   onOpenNote: (id: number) => void
   onCreateSubpage: (title: string) => Promise<{ id: number; title: string }>
   getNotes: () => NoteSummary[]
+  getTitle?: () => string
 }
 
 export default function RichEditor(props: Props) {
@@ -51,6 +53,11 @@ export default function RichEditor(props: Props) {
       CaretMargin,
       BlockBackspace,
       BlockHandle,
+      InlineFormula.configure({ katexOptions, onClick: (_n, pos) => editorRef.current?.isEditable && editMath(editorRef.current, pos, false) }),
+      BlockFormula.configure({
+        katexOptions: { ...katexOptions, displayMode: true },
+        onClick: (_n, pos) => editorRef.current?.isEditable && editMath(editorRef.current, pos, true),
+      }),
       Mermaid,
       Callout,
       Details.configure({ persist: true, HTMLAttributes: { class: 'toggle' } }),
@@ -69,7 +76,11 @@ export default function RichEditor(props: Props) {
           return 'Schreibe, oder tippe / für Blöcke'
         },
       }),
-      SyntaxHighlight.configure({ onOpenLink: (t) => cb.current.onOpenLink(t), getNotes: () => cb.current.getNotes() }),
+      SyntaxHighlight.configure({
+        onOpenLink: (t) => cb.current.onOpenLink(t),
+        getNotes: () => cb.current.getNotes(),
+        getSelfTitle: () => cb.current.getTitle?.() ?? '',
+      }),
       SlashCommands.configure({ createSubpage: (t) => cb.current.onCreateSubpage(t) }),
       WikilinkSuggest.configure({ getTitles: () => cb.current.getNotes().map((n) => n.title) }),
     ],

@@ -4,6 +4,7 @@ import Suggestion from '@tiptap/suggestion'
 import { menuRenderer, type MenuItem } from './SuggestionMenu'
 import { pickImages } from './upload'
 import { EXAMPLE_DIAGRAM } from './Mermaid'
+import { editMath } from './Math'
 import { emptyDatabase, taskTracker } from './database/model'
 
 export interface SlashOptions {
@@ -80,6 +81,25 @@ const ITEMS: SlashItem[] = [
         .run(),
   },
   {
+    title: 'Formel', icon: '∑', hint: '$E = mc^2$ im Text', keywords: 'math latex formel gleichung equation katex',
+    run: (e, r) => {
+      e.chain().focus().deleteRange(r).insertContent({ type: 'inlineMath', attrs: { latex: 'x' } }).run()
+      editMath(e, e.state.selection.from - 1, false)
+    },
+  },
+  {
+    title: 'Formelblock', icon: '∫', hint: '$$ … $$ als eigene Zeile', keywords: 'math latex formel block display gleichung equation',
+    run: (e, r) => {
+      const at = r.from
+      e.chain().focus().deleteRange(r).insertContent({ type: 'blockMath', attrs: { latex: 'x' } }).run()
+      let found = -1
+      e.state.doc.descendants((n, p) => {
+        if (n.type.name === 'blockMath' && Math.abs(p - at) < 4) found = p
+      })
+      if (found >= 0) editMath(e, found, true)
+    },
+  },
+  {
     title: 'Lückentext', icon: '▭', hint: '{{verdeckt}}', keywords: 'cloze lücke abdecken',
     run: (e, r) => e.chain().focus().deleteRange(r).insertContent('{{verdeckt}}').run(),
   },
@@ -89,11 +109,11 @@ const ITEMS: SlashItem[] = [
 const GROUPS: [string, string[]][] = [
   ['Grundblöcke', ['Text', 'Überschrift 1', 'Überschrift 2', 'Überschrift 3', 'Aufzählung', 'Nummerierte Liste', 'To-do-Liste', 'Aufklappbar', 'Zitat', 'Callout', 'Trennlinie', 'Code']],
   ['Karteikarten', ['Karteikarte', 'Listen-Karte', 'Lückentext']],
-  ['Medien & Struktur', ['Bild', 'Tabelle', 'Diagramm', 'Unterseite', 'Datenbank', 'Task-Tracker']],
+  ['Medien & Struktur', ['Formel', 'Formelblock', 'Bild', 'Tabelle', 'Diagramm', 'Unterseite', 'Datenbank', 'Task-Tracker']],
 ]
 const KBD: Record<string, string> = {
   'Überschrift 1': '#', 'Überschrift 2': '##', 'Überschrift 3': '###', Aufzählung: '-', 'Nummerierte Liste': '1.',
-  'To-do-Liste': '[]', Zitat: '>', Code: '```', Trennlinie: '---', Karteikarte: '>>', Lückentext: '{{ }}',
+  'To-do-Liste': '[]', Zitat: '>', Code: '```', Trennlinie: '---', Karteikarte: '>>', Lückentext: '{{ }}', Formel: '$ $', Formelblock: '$$',
 }
 const SLASH_ITEMS: SlashItem[] = GROUPS.flatMap(([group, titles]) =>
   titles.map((t) => ({ ...ITEMS.find((i) => i.title === t)!, group, kbd: KBD[t] })),

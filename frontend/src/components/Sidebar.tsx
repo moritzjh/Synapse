@@ -14,6 +14,7 @@ interface Props {
   onCreateNote: (where?: { folder?: string; parentId?: number }) => void
   onDeleteNote: (id: number) => void
   onStudy: (path: string, name: string) => void
+  onImport: () => void
   onChanged: () => void
 }
 
@@ -31,7 +32,7 @@ function loadExpanded(): Set<string> {
   }
 }
 
-export default function Sidebar({ tree, view, due, status, onNavigate, onCreateNote, onDeleteNote, onStudy, onChanged }: Props) {
+export default function Sidebar({ tree, view, due, status, onNavigate, onCreateNote, onDeleteNote, onStudy, onImport, onChanged }: Props) {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<Hit[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(loadExpanded)
@@ -258,6 +259,9 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
         <span>{query.trim() ? 'Treffer' : 'Notizen'}</span>
         {!query.trim() && (
           <span className="side-section-actions">
+            <button className="icon-btn" title="Aus Anki importieren (.apkg)" onClick={onImport}>
+              <Icon name="import" />
+            </button>
             <button className="icon-btn" title="Neuer Ordner" onClick={() => newFolder('')}>
               <Icon name="folder" />
             </button>

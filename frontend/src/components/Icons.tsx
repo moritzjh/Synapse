@@ -32,6 +32,7 @@ const paths = {
   reset: 'M3 8a5 5 0 1 0 1.5-3.6M3 2.5v2.5h2.5',
   play: 'M5 3.5v9l7-4.5z',
   fit: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10',
+  import: 'M8 2.5v7.5M5 7l3 3 3-3M2.5 11v2.5h11V11',
 }
 
 export type IconName = keyof typeof paths

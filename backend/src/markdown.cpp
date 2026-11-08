@@ -63,7 +63,7 @@ std::string escape_text(const std::string& t, bool in_table) {
     char next = i + 1 < t.size() ? t[i + 1] : ' ';
     bool esc = false;
     switch (c) {
-      case '\\': case '*': case '`': esc = true; break;
+      case '\\': case '*': case '`': case '$': esc = true; break;  // $ would start LaTeX
       case '_': esc = !(is_word(prev) && is_word(next)); break;
       case '~': case '=': esc = next == c; break;
       case '<': esc = std::isalpha(static_cast<unsigned char>(next)) || next == '/' || next == '!'; break;
@@ -125,6 +125,13 @@ std::string render_inline(const json& block, bool in_table) {
       out += pending_ws;
       pending_ws.clear();
       out += in_table ? "<br>" : "  \n";
+      continue;
+    }
+    if (type == "inlineMath") {
+      // $…$ as in Obsidian; marks never wrap math
+      close_to(0);
+      out += pending_ws + "$" + n.value("attrs", json::object()).value("latex", "") + "$";
+      pending_ws.clear();
       continue;
     }
     if (type != "text") continue;
@@ -347,6 +354,12 @@ Lines render_block(const json& n, bool alt_marker) {
     return fenced(lang, node_text(n));
   }
   if (type == "mermaid") return fenced("mermaid", attrs.value("code", ""));
+  if (type == "blockMath") {
+    Lines out{"$$"};
+    for (auto& l : split_lines(attrs.value("latex", ""))) out.push_back(l);
+    out.emplace_back("$$");
+    return out;
+  }
   if (type == "horizontalRule") return {"---"};
   if (type == "image") {
     std::string src = to_vault_src(attrs.value("src", json("")).is_string() ? attrs["src"].get<std::string>() : "");
@@ -377,6 +390,8 @@ struct Builder {
   std::vector<json> marks;
   bool in_image = false;
   std::string image_src, image_alt;
+  bool in_math = false;
+  std::string math;
   bool skip_table = false;  // the table after a synapse-db comment is only a rendering
   int skipping = 0;         // depth inside a skipped table
 
@@ -413,6 +428,10 @@ struct Builder {
 
   void add_text(const std::string& text) {
     if (text.empty()) return;
+    if (in_math) {
+      math += text;
+      return;
+    }
     if (in_image) {
       image_alt += text;
       return;
@@ -454,6 +473,10 @@ struct Builder {
   }
 
   void hard_break() {
+    if (in_math) {
+      math += '\n';
+      return;
+    }
     if (in_image) return;
     inline_target().push_back({{"type", "hardBreak"}});
   }
@@ -483,6 +506,24 @@ struct Builder {
     // Re-open a stand-in for the paragraph md4c will close; empty ones are dropped.
     if (in_para && !was_implicit) push({{"type", "paragraph"}}, false);
     image_alt.clear();
+  }
+
+  void finish_math(bool display) {
+    in_math = false;
+    std::string latex = math;
+    math.clear();
+    if (!display) {
+      inline_target().push_back({{"type", "inlineMath"}, {"attrs", {{"latex", latex}}}});
+      return;
+    }
+    // $$…$$ is a block of its own, like an image: end the paragraph around it.
+    size_t b = latex.find_first_not_of(" \n"), e = latex.find_last_not_of(" \n");
+    latex = b == std::string::npos ? "" : latex.substr(b, e - b + 1);
+    bool in_para = is_inline_container(stack.back().node.value("type", ""));
+    bool was_implicit = in_para && stack.back().implicit;
+    if (in_para) pop();
+    stack.back().node["content"].push_back({{"type", "blockMath"}, {"attrs", {{"latex", latex}}}});
+    if (in_para && !was_implicit) push({{"type", "paragraph"}}, false);
   }
 
   json finish() {
@@ -695,6 +736,11 @@ int enter_span(MD_SPANTYPE type, void* detail, void* ud) {
     case MD_SPAN_A:
       b.toggle_mark("link", true, {{"href", attr_str(static_cast<MD_SPAN_A_DETAIL*>(detail)->href)}});
       break;
+    case MD_SPAN_LATEXMATH:
+    case MD_SPAN_LATEXMATH_DISPLAY:
+      b.in_math = true;
+      b.math.clear();
+      break;
     case MD_SPAN_IMG:
       b.in_image = true;
       b.image_src = attr_str(static_cast<MD_SPAN_IMG_DETAIL*>(detail)->src);
@@ -715,6 +761,8 @@ int leave_span(MD_SPANTYPE type, void*, void* ud) {
     case MD_SPAN_U: b.toggle_mark("underline", false); break;
     case MD_SPAN_A: b.toggle_mark("link", false); break;
     case MD_SPAN_IMG: b.finish_image(); break;
+    case MD_SPAN_LATEXMATH: b.finish_math(false); break;
+    case MD_SPAN_LATEXMATH_DISPLAY: b.finish_math(true); break;
     default: break;
   }
   return 0;
@@ -759,7 +807,7 @@ json markdown_to_doc(const std::string& markdown) {
   Builder b;
   MD_PARSER parser{};
   parser.flags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_PERMISSIVEURLAUTOLINKS |
-                 MD_FLAG_PERMISSIVEWWWAUTOLINKS | MD_FLAG_NOINDENTEDCODEBLOCKS;
+                 MD_FLAG_PERMISSIVEWWWAUTOLINKS | MD_FLAG_NOINDENTEDCODEBLOCKS | MD_FLAG_LATEXMATHSPANS;
   parser.enter_block = enter_block;
   parser.leave_block = leave_block;
   parser.enter_span = enter_span;

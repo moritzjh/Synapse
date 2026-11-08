@@ -220,6 +220,24 @@ void test_exam_scheduling() {
   auto s2 = fsrs::review(strong, fsrs::Good, c.due, {}, exam);
   CHECK(s2.due > exam);
 }
+void test_markdown_math() {
+  std::string md = "Energie $E = mc^2$ >> Einstein\n\n$$\n\\int_0^1 x\\,dx = \\frac{1}{2}\n$$\n\nKostet 5 \\$ und 10 \\$\n";
+  json d = markdown_to_doc(md);
+  const auto& c = d["content"];
+  CHECK(c.size() == 3);
+  if (c.size() != 3) {
+    std::cerr << d.dump(2) << "\n";
+    return;
+  }
+  CHECK(c[0]["content"][1]["type"] == "inlineMath" && c[0]["content"][1]["attrs"]["latex"] == "E = mc^2");
+  CHECK(c[1]["type"] == "blockMath" && c[1]["attrs"]["latex"] == "\\int_0^1 x\\,dx = \\frac{1}{2}");
+  CHECK(c[2]["content"][0]["text"] == "Kostet 5 $ und 10 $");
+  CHECK(doc_to_markdown(d) == md);
+  if (doc_to_markdown(d) != md) std::cerr << doc_to_markdown(d);
+  auto cards = extract_cards(d);
+  CHECK(cards.size() == 1 && cards[0].front == "Energie $E = mc^2$" && cards[0].data["back"] == "Einstein");
+}
+
 // Review scopes (folder / note), folder colours and untitled notes, on a real store + vault.
 void test_vault_scopes() {
   namespace fs = std::filesystem;
@@ -282,6 +300,7 @@ int main() {
   test_markdown_import();
   test_exam_scheduling();
   test_markdown_blocks();
+  test_markdown_math();
   test_vault_scopes();
   if (failures) {
     std::cerr << failures << " check(s) failed\n";

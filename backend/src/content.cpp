@@ -31,6 +31,7 @@ std::string inline_text(const json& node) {
     const std::string t = c.value("type", "");
     if (t == "text") out += c.value("text", "");
     else if (t == "hardBreak") out += '\n';
+    else if (t == "inlineMath") out += "$" + c.value("attrs", json::object()).value("latex", "") + "$";
     else if (c.contains("content")) out += inline_text(c);
   }
   return out;
@@ -94,6 +95,11 @@ void collect_text(const json& node, std::string& out) {
     const auto& a = node.value("attrs", json::object());
     std::string alt = a.value("alt", json()).is_string() ? a["alt"].get<std::string>() : "";
     if (!alt.empty()) out += alt + '\n';
+    return;
+  }
+  if (t == "inlineMath" || t == "blockMath") {
+    std::string latex = node.value("attrs", json::object()).value("latex", "");
+    out += t == "inlineMath" ? "$" + latex + "$" : "$$" + latex + "$$\n";
     return;
   }
   if (t == "mermaid") {

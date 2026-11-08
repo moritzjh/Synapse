@@ -196,6 +196,7 @@ export default function NotePage(props: Props) {
             key={version}
             initial={doc}
             getNotes={() => notesRef.current}
+            getTitle={() => titleRef.current?.value ?? ''}
             onOpenLink={async (t) => {
               await flush()
               onOpenLink(t)

@@ -6,6 +6,7 @@ import GraphView from './components/GraphView'
 import Review from './components/Review'
 import Exams from './components/Exams'
 import FolderPage from './components/FolderPage'
+import AnkiImport from './import/AnkiImport'
 import type { StudyScope } from './components/Review'
 
 export type View =
@@ -24,6 +25,7 @@ export default function App() {
   const [due, setDue] = useState(0)
   const [status, setStatus] = useState<Status | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const refreshMeta = useCallback(() => {
     cardApi.stats().then((s) => setDue(s.due + s.new)).catch(() => {})
@@ -83,8 +85,21 @@ export default function App() {
         onCreateNote={(where) => createNote('', where)}
         onDeleteNote={deleteNote}
         onStudy={study}
+        onImport={() => setImporting(true)}
         onChanged={refresh}
       />
+      {importing && (
+        <AnkiImport
+          onClose={() => {
+            setImporting(false)
+            refresh()
+          }}
+          onDone={(folder) => {
+            setImporting(false)
+            refresh().then(() => openFolder(folder))
+          }}
+        />
+      )}
       <main className="main">
         {error && <div className="error-bar">{error}</div>}
         {view.kind === 'note' ? (
