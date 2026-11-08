@@ -4,9 +4,9 @@ frontend/dist/
 *.db
 *.db-wal
 *.db-shm
-models/
+/models/
 backend/third_party/onnxruntime/
 uploads/
-vault/
+/vault/
 backend/build-dbg/
-data/
+/data/
