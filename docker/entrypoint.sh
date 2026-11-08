@@ -4,6 +4,11 @@ set -e
 # the image ships exactly one model in /app/models/<name>
 [ -z "$SYNAPSE_MODEL" ] && SYNAPSE_MODEL="$(find /app/models -mindepth 1 -maxdepth 1 -type d | head -n1)" && export SYNAPSE_MODEL
 mkdir -p /data/vault
+# First start with an empty data folder: copy the demo notes so there is something to explore (SYNAPSE_DEMO=0 to skip).
+if [ "${SYNAPSE_DEMO:-1}" != 0 ] && [ ! -e "$SYNAPSE_DB" ] && [ -z "$(ls -A /data/vault)" ]; then
+  cp -r /app/demo/vault/. /data/vault/
+  [ "$(id -u)" = 0 ] && { chown -R "$PUID:$PGID" /data/vault 2>/dev/null || true; }
+fi
 if [ "$(id -u)" = 0 ] && [ "$1" = synapse ]; then
   # may fail on Windows/macOS bind mounts – harmless there
   chown "$PUID:$PGID" /data /data/vault 2>/dev/null || true

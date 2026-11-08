@@ -1,5 +1,7 @@
 # Synapse
 
+*English version: [README](../README.md)*
+
 Notizen + Karteikarten + Wissensgraph – RemNote-artig (Notion + Anki), mit einem Graphen wie in
 Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch verknüpft.
 
@@ -92,19 +94,22 @@ Wiederholungen und alle neuen Karten des Bereichs.
 Voraussetzung: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/macOS) oder Docker Engine (Linux).
 
 ```bash
-git clone https://github.com/moritzjh/Synapse.git
-cd Synapse
-docker compose up -d --build
+mkdir synapse && cd synapse
+curl -fsSLO https://raw.githubusercontent.com/moritzjh/Synapse/main/docker-compose.yml
+docker compose up -d
 ```
 
-Dann **http://localhost:8080** öffnen. Der erste Build dauert ein paar Minuten (Frontend, C++-Backend und
-das Embedding-Modell multilingual-e5-small werden ins Image gepackt); danach startet Synapse in Sekunden.
+Das fertige Image (x86-64 und ARM) kommt von `ghcr.io/moritzjh/synapse`. Selbst bauen geht weiterhin mit
+`git clone …` und `docker compose up -d --build`. Beim allerersten Start werden Demo-Notizen angelegt
+(`SYNAPSE_DEMO=0` startet leer).
+
+Dann **http://localhost:8080** öffnen. Die Oberfläche gibt es auf Deutsch und Englisch (unten links umschalten).
 
 - **Deine Daten** liegen im Ordner `data/` neben der `docker-compose.yml`: `synapse.db` und `vault/` mit
   allen Notizen als `.md` – den Vault-Ordner kannst du direkt in Obsidian öffnen.
 - **Stoppen / Starten:** `docker compose stop` · `docker compose start` – der Container startet mit dem PC
   automatisch mit (`restart: unless-stopped`), solange Docker läuft.
-- **Update:** `git pull && docker compose up -d --build`
+- **Update:** `docker compose pull && docker compose up -d`
 - **Kleineres Modell** (nur Englisch, Image ≈ 360 MB): in `docker-compose.yml` `MODEL: minilm` setzen.
 - **Linux:** `PUID`/`PGID` in `docker-compose.yml` auf die Ausgabe von `id -u`/`id -g` setzen, damit die
   Dateien in `data/` dir gehören.
