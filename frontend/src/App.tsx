@@ -120,7 +120,7 @@ export default function App() {
             onLocalGraph={() => setView({ kind: 'graph', focus: view.id })}
           />
         ) : view.kind === 'graph' ? (
-          <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} />
+          <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} onStudy={study} />
         ) : view.kind === 'review' ? (
           <Review key={`${view.exam ?? 0}:${view.scope?.path ?? ''}`} exam={view.exam} scope={view.scope} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
         ) : view.kind === 'folder' ? (

@@ -363,6 +363,13 @@ json Service::review_stats(const CardScope& scope) {
   return {{"due", st.due}, {"new", st.new_available}, {"total", st.total}, {"reviewed_today", st.reviewed_today}};
 }
 
+json Service::mastery() {
+  json a = json::array();
+  for (const auto& m : store_.note_mastery(now_ms()))
+    a.push_back({{"note_id", m.note_id}, {"cards", m.cards}, {"new", m.new_cards}, {"due", m.due}, {"retention", m.retention}});
+  return a;
+}
+
 json Service::review_card(int64_t card_id, int rating) {
   if (rating < fsrs::Again || rating > fsrs::Easy) throw ServiceError(400, "rating must be 1..4");
   auto c = store_.review_card(card_id, static_cast<fsrs::Rating>(rating), now_ms());

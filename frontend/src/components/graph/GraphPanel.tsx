@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Icon } from '../Icons'
 import { t } from '../../i18n'
-import { DEFAULTS, PRESETS, type Group, type Settings, type StyleName } from './settings'
+import { DEFAULTS, type Group, type Settings } from './settings'
 
 interface Props {
   settings: Settings
@@ -53,31 +53,15 @@ export default function GraphPanel({ settings: s, series, set, replace, onClose 
         </button>
       </header>
 
-      {Section({ id: "style", title: t('Stil'), children: (<>
-        <div className="gp-presets">
-          {(Object.keys(PRESETS) as StyleName[]).map((k) => (
-            <button
-              key={k}
-              className={`gp-preset preset-${k} ${s.style === k ? 'on' : ''}`}
-              onClick={() => replace({ ...s, ...PRESETS[k].apply })}
-              title={PRESETS[k].hint}
-            >
-              <span className="gp-swatch">
-                <i /><i /><i /><b /><b />
-              </span>
-              {PRESETS[k].name}
-            </button>
-          ))}
-        </div>
-        <Slider label={t('Leuchten')} value={s.glow} min={0} max={1} step={0.05} fmt={pct} set={(v) => set('glow', v)} />
-        <Row label={t('Hintergrund')}>
+      {Section({ id: "style", title: t('Ansicht'), children: (<>
+        <Row label={t('Farben zeigen')}>
           <Segmented
-            value={s.background}
-            options={[['none', t('Ohne')], ['dots', t('Raster')], ['stars', t('Sterne')]]}
-            set={(v) => set('background', v as Settings['background'])}
+            value={s.view}
+            options={[['folders', t('Ordner')], ['mastery', t('Wissensstand')]]}
+            set={(v) => set('view', v as Settings['view'])}
           />
         </Row>
-        <Toggle label={t('Signalfluss beim Zeigen')} on={s.particles} set={(v) => set('particles', v)} />
+        <Toggle label={t('Bereiche hinterlegen')} on={s.regions} set={(v) => set('regions', v)} />
       </>) })}
 
       {Section({ id: "filter", title: t('Filter'), children: (<>

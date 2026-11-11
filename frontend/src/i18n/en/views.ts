@@ -1,5 +1,18 @@
 /** English UI text, keyed by the German original. */
 export default {
+  'Sitzt': 'Solid',
+  'Lässt nach': 'Fading',
+  'Fast vergessen': 'Nearly forgotten',
+  'Noch nicht gelernt': 'Not studied yet',
+  'Keine Karten': 'No cards',
+  'Wissensstand': 'Knowledge',
+  'Farben zeigen': 'Colour by',
+  'Zeigt, wie gut du die Karten jeder Notiz gerade kannst': 'Shows how well you currently know the cards of each note',
+  'Ansicht': 'View',
+  'Bereiche hinterlegen': 'Shade areas',
+  '{n} % abrufbar': '{n}% recall',
+  '{n} fällig': '{n} due',
+  'Schwächste Notiz lernen': 'Study weakest note',
   // Editor
   'Speichert…': 'Saving…',
   'Bearbeitet': 'Edited',

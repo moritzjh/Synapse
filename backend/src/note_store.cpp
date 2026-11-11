@@ -550,6 +550,36 @@ ReviewStats NoteStore::review_stats(int64_t now, int new_per_day, const CardScop
   return st;
 }
 
+std::vector<NoteMastery> NoteStore::note_mastery(int64_t now) {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, (card_select("1") + " ORDER BY c.note_id").c_str());
+  std::vector<NoteMastery> out;
+  double sum = 0;
+  int studied = 0;
+  auto finish = [&] {
+    if (!out.empty()) out.back().retention = studied ? sum / studied : 0;
+    sum = 0;
+    studied = 0;
+  };
+  for (const auto& c : query_cards(s)) {
+    if (out.empty() || out.back().note_id != c.note_id) {
+      finish();
+      out.push_back({c.note_id});
+    }
+    NoteMastery& m = out.back();
+    ++m.cards;
+    if (c.sched.state == fsrs::State::New) {
+      ++m.new_cards;
+      continue;
+    }
+    if (c.sched.due <= now) ++m.due;
+    sum += fsrs::retrievability(c.sched, now);
+    ++studied;
+  }
+  finish();
+  return out;
+}
+
 // ---- folder colour / icon -------------------------------------------------------
 
 std::vector<FolderMeta> NoteStore::folder_meta() {

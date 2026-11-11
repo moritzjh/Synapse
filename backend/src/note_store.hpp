@@ -82,6 +82,15 @@ struct FolderMeta {
   std::string path, color, icon;
 };
 
+// How well the cards of one note are known right now.
+struct NoteMastery {
+  int64_t note_id = 0;
+  int cards = 0;
+  int new_cards = 0;
+  int due = 0;
+  double retention = 0;  // mean recall probability of the cards studied so far (0 if none)
+};
+
 struct ReviewStats {
   int due = 0;           // learning + review cards due now
   int new_available = 0; // new cards that may still be introduced today
@@ -130,6 +139,8 @@ class NoteStore {
   std::optional<Card> card(int64_t id);
   std::optional<Card> review_card(int64_t id, fsrs::Rating rating, int64_t now_ms);
   ReviewStats review_stats(int64_t now_ms, int new_per_day, const CardScope& scope = {});
+  // One entry per note that has cards.
+  std::vector<NoteMastery> note_mastery(int64_t now_ms);
 
   // --- folder colour / icon ---
   std::vector<FolderMeta> folder_meta();

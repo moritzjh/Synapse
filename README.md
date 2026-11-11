@@ -81,8 +81,8 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 <td width="50%"><img src="docs/screenshots/study.png" alt="Studying a list card step by step"></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/graph.png" alt="Knowledge graph coloured by folder"></td>
-<td><img src="docs/screenshots/dark.png" alt="Dark mode"></td>
+<td><img src="docs/screenshots/graph.png" alt="Knowledge graph with one shaded region per folder"></td>
+<td><img src="docs/screenshots/knowledge.png" alt="Knowledge view: notes coloured by how well you know their cards"></td>
 </tr>
 </table>
 
@@ -112,7 +112,8 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 - **Import your Anki decks** (`.apkg` / `.colpkg`, old and new format): decks become notes, cloze, reversed cards, images and MathJax are kept
 
 **Knowledge graph (Obsidian-style)**
-- Coloured by folder, labels without overlap, local graph around a note, filters, groups, time-lapse
+- Drawn like a map: one softly shaded region per folder, labels beside the notes, local graph around a note, filters, groups, time-lapse
+- **Knowledge view:** switch the colours from folders to *how well you know each note right now* (solid, fading, nearly forgotten, not studied yet), computed from your review history. One click studies the weakest note
 - **Semantic edges:** a local embedding model ([multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small), 100+ languages) connects similar notes, with no API key and nothing leaving your machine
 - "Similar notes" next to every note and search by meaning
 
@@ -160,7 +161,7 @@ claude mcp add --transport http synapse http://127.0.0.1:8080/mcp
 
 Tools: `list_notes`, `read_note`, `search_notes` (full-text + semantic), `create_note`, `update_note`, `delete_note`,
 `list_tree`, `create_folder`, `move_note`, `get_databases`, `upsert_database_row`, `get_graph`, `list_cards`,
-`review_queue`, `review_card`, `list_exams`, `create_exam`, `update_exam`, `delete_exam`.
+`review_queue`, `review_card`, `knowledge_status`, `list_exams`, `create_exam`, `update_exam`, `delete_exam`.
 
 > *"Read my cell biology notes, write flashcards for everything important and create an exam for February 14th."*
 
@@ -198,11 +199,11 @@ and embeddings are verified against the Hugging Face reference implementation.
 - [x] Flashcards in notes, FSRS, image occlusion, exams
 - [x] Markdown vault (Obsidian compatible), MCP server
 - [x] Databases with formulas, folders, LaTeX, Anki import
+- [x] Knowledge view: the graph coloured by how well you know each note
 - [ ] Desktop app with installer (Tauri)
 - [ ] Mobile-friendly PWA for studying on the go
 - [ ] Login + multi-user for server installs
 - [ ] PDF import with highlights → cards
-- [ ] Graph coloured by how well you know each topic
 - [ ] Sync between devices
 
 ## Contributing

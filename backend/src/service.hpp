@@ -63,6 +63,8 @@ class Service {
   nlohmann::json review_queue(const CardScope& scope, int limit = 100);
   nlohmann::json review_stats(const CardScope& scope);
   nlohmann::json review_card(int64_t card_id, int rating);
+  // [{note_id, cards, new, due, retention}] for every note with cards – the "knowledge map".
+  nlohmann::json mastery();
 
   // exams
   nlohmann::json list_exams();

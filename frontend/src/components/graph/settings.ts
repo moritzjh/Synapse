@@ -1,7 +1,4 @@
-import { t } from '../../i18n'
-/** Graph settings, modelled on Obsidian's graph view (filters, groups, display, forces) plus visual presets. */
-
-export type StyleName = 'clean' | 'night' | 'neon' | 'stars'
+/** Graph settings, modelled on Obsidian's graph view (filters, groups, display, forces). */
 
 export interface Group {
   id: string
@@ -11,10 +8,10 @@ export interface Group {
 }
 
 export interface Settings {
-  style: StyleName
-  glow: number // 0..1
-  background: 'none' | 'dots' | 'stars'
-  particles: boolean
+  /** What the colours mean: the folder a note is in, or how well its flashcards are known. */
+  view: 'folders' | 'mastery'
+  /** Tinted areas with a caption behind the notes of each group, like regions on a map. */
+  regions: boolean
   // filters
   links: boolean
   subpages: boolean
@@ -42,10 +39,8 @@ export interface Settings {
 }
 
 export const DEFAULTS: Settings = {
-  style: 'clean',
-  glow: 0,
-  background: 'dots',
-  particles: false,
+  view: 'folders',
+  regions: true,
   links: true,
   subpages: true,
   semantic: true,
@@ -57,87 +52,71 @@ export const DEFAULTS: Settings = {
   groups: [],
   arrows: false,
   labels: 'auto',
-  textFade: 0.35,
+  textFade: 0.3,
   nodeSize: 1,
   linkWidth: 1,
-  center: 0.08,
-  repel: 190,
-  linkForce: 0.55,
-  distance: 52,
+  center: 0.06,
+  repel: 220,
+  linkForce: 0.5,
+  distance: 58,
   depth: 2,
 }
 
-export interface Preset {
-  name: string
-  hint: string
-  apply: Partial<Settings>
-}
+export type Status = 'strong' | 'fading' | 'weak' | 'new' | 'none'
 
-export const PRESETS: Record<StyleName, Preset> = {
-  clean: { name: t('Klar'), hint: t('ruhig, folgt dem App-Thema'), apply: { style: 'clean', glow: 0, background: 'dots', particles: false } },
-  night: { name: t('Nacht'), hint: t('dunkel mit Punktraster'), apply: { style: 'night', glow: 0.25, background: 'dots', particles: false } },
-  neon: { name: t('Neon'), hint: t('leuchtende Knoten, Signalfluss'), apply: { style: 'neon', glow: 0.8, background: 'none', particles: true } },
-  stars: { name: t('Sternbild'), hint: t('Sternenhimmel, sanftes Leuchten'), apply: { style: 'stars', glow: 0.55, background: 'stars', particles: false } },
-}
-
-/** Canvas colours. "clean" reads the CSS theme; the dark presets use the dark palette steps. */
+/** Canvas colours, read from the app's CSS theme so the graph follows light and dark mode. */
 export interface Palette {
   bg: string
-  bg2?: string // second gradient stop
   text: string
   label: string
-  labelBg: string
-  labelHalo: string // text halo + node ring, normally the background colour
-  grid: string
+  muted: string
   link: string
   faint: string
-  neutral: string
-  accent: string
   semantic: string
+  accent: string
   series: string[]
-  tintLinks: boolean
+  status: Record<'strong' | 'fading' | 'weak', string>
 }
 
-const DARK_SERIES = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767']
-const NEON_SERIES = ['#5aa2ff', '#ff7a45', '#2fe0a0', '#ffc233', '#ff6fae', '#45d64a', '#a99cff', '#ff7676']
-
-export function palette(style: StyleName, css: () => CSSStyleDeclaration): Palette {
-  if (style === 'clean') {
-    const c = css()
-    const v = (n: string) => c.getPropertyValue(n).trim()
-    return {
-      bg: v('--bg'),
-      text: v('--text'),
-      label: v('--text-2'),
-      labelBg: v('--graph-label-bg'),
-      labelHalo: v('--bg'),
-      grid: v('--graph-grid'),
-      link: v('--graph-link'),
-      faint: v('--graph-faint'),
-      neutral: v('--muted'),
-      accent: v('--accent'),
-      semantic: v('--graph-semantic'),
-      series: Array.from({ length: 8 }, (_, i) => v(`--series-${i + 1}`)),
-      tintLinks: false,
-    }
+export function palette(css: CSSStyleDeclaration): Palette {
+  const v = (n: string) => css.getPropertyValue(n).trim()
+  return {
+    bg: v('--bg'),
+    text: v('--text'),
+    label: v('--text-2'),
+    muted: v('--muted'),
+    link: v('--graph-link'),
+    faint: v('--graph-faint'),
+    semantic: v('--graph-semantic'),
+    accent: v('--accent'),
+    series: Array.from({ length: 8 }, (_, i) => v(`--series-${i + 1}`)),
+    status: { strong: v('--status-good'), fading: v('--status-warning'), weak: v('--status-critical') },
   }
-  const dark = {
-    text: '#eef0f4',
-    label: '#a9afbb',
-    labelBg: 'rgba(12, 14, 19, 0.72)',
-    grid: 'rgba(255, 255, 255, 0.09)',
-    link: 'rgba(255, 255, 255, 0.13)',
-    faint: 'rgba(255, 255, 255, 0.035)',
-    neutral: '#8a909c',
-    accent: '#9ab8ff',
-    semantic: 'rgba(170, 180, 200, 0.32)',
-  }
-  if (style === 'night') return { ...dark, bg: '#111318', labelHalo: '#111318', series: DARK_SERIES, tintLinks: false }
-  if (style === 'neon') return { ...dark, bg: '#07080c', labelHalo: '#07080c', series: NEON_SERIES, neutral: '#b9c1d0', tintLinks: true }
-  return { ...dark, bg: '#0b1124', bg2: '#04050b', labelHalo: '#070a17', series: NEON_SERIES, neutral: '#dfe6ff', link: 'rgba(200, 215, 255, 0.16)', tintLinks: false }
 }
 
-const STORE = 'synapse.graph.v3'
+/** [r, g, b] of "#rgb", "#rrggbb" or "rgb(a)(…)". */
+function rgb(color: string): [number, number, number] {
+  if (color.startsWith('#')) {
+    const h = color.length === 4 ? [...color.slice(1)].map((c) => c + c).join('') : color.slice(1, 7)
+    const n = parseInt(h, 16)
+    return [n >> 16, (n >> 8) & 255, n & 255]
+  }
+  const m = color.match(/[\d.]+/g)?.map(Number) ?? [128, 128, 128]
+  return [m[0], m[1], m[2]]
+}
+
+/** Opaque mix of two colours: `t` = 0 gives `a`, 1 gives `b`. */
+export function mix(a: string, b: string, t: number) {
+  const x = rgb(a), y = rgb(b)
+  return `rgb(${x.map((c, i) => Math.round(c + (y[i] - c) * t)).join(', ')})`
+}
+
+export function withAlpha(color: string, a: number) {
+  const [r, g, b] = rgb(color)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+const STORE = 'synapse.graph.v4'
 
 export function loadSettings(): Settings {
   try {
@@ -161,4 +140,21 @@ export function matchesGroup(g: Group, title: string, path: string) {
   if (q.startsWith('path:')) return path.toLowerCase().startsWith(q.slice(5).trim())
   if (q.startsWith('title:')) return title.toLowerCase().includes(q.slice(6).trim())
   return title.toLowerCase().includes(q) || path.toLowerCase().includes(q)
+}
+
+/** Convex hull (Andrew's monotone chain) of 2D points, counter-clockwise. */
+export function hull(points: [number, number][]): [number, number][] {
+  const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  if (p.length < 3) return p
+  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const half = (pts: [number, number][]) => {
+    const out: [number, number][] = []
+    for (const q of pts) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop()
+      out.push(q)
+    }
+    out.pop()
+    return out
+  }
+  return [...half(p), ...half([...p].reverse())]
 }

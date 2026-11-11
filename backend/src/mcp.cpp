@@ -271,6 +271,30 @@ void McpServer::register_tools() {
                       return ToolResult{text.empty() ? "Nothing due." : text, {{"cards", q}, {"stats", service_.review_stats(scope)}}};
                     }});
 
+  tools_.push_back({"knowledge_status", "How well each note is known",
+                    "Per note with flashcards: number of cards, new and due cards and the current mean recall probability "
+                    "(retention, 0..1). Weakest notes first. Use to decide what the user should study or to explain their progress.",
+                    schema(json::object()),
+                    [this](const json&) {
+                      json rows = service_.mastery();
+                      json titles = json::object();
+                      for (const auto& n : service_.list_notes()) titles[std::to_string(n["id"].get<int64_t>())] = n["title"];
+                      for (auto& r : rows) r["title"] = titles.value(std::to_string(r["note_id"].get<int64_t>()), json(""));
+                      std::sort(rows.begin(), rows.end(), [](const json& a, const json& b) {
+                        auto key = [](const json& r) { return r["cards"] == r["new"] ? 2.0 : r["retention"].get<double>(); };
+                        return key(a) < key(b);
+                      });
+                      std::string text;
+                      for (const auto& r : rows) {
+                        bool unseen = r["cards"] == r["new"];
+                        text += r["title"].get<std::string>() + ": " + std::to_string(r["cards"].get<int>()) + " cards, " +
+                                (unseen ? std::string("not studied yet")
+                                        : std::to_string(static_cast<int>(r["retention"].get<double>() * 100 + 0.5)) + "% recall, " +
+                                              std::to_string(r["due"].get<int>()) + " due") + "\n";
+                      }
+                      return ToolResult{text.empty() ? "No flashcards yet." : text, {{"notes", rows}}};
+                    }});
+
   tools_.push_back({"review_card", "Grade a card",
                     "Record a review of a flashcard: rating 1 = again (forgotten), 2 = hard, 3 = good, 4 = easy. "
                     "The FSRS scheduler (exam-aware) computes the next due date.",

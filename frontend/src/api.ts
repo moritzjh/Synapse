@@ -128,6 +128,16 @@ export interface Card {
   exam_date: number | null
 }
 
+/** How well the cards of one note are known right now (only notes that have cards). */
+export interface NoteMastery {
+  note_id: number
+  cards: number
+  new: number
+  due: number
+  /** mean recall probability of the cards studied so far, 0..1 */
+  retention: number
+}
+
 export interface ReviewStats {
   due: number
   new: number
@@ -177,6 +187,7 @@ function scopeQuery(exam: number, path: string) {
 }
 
 export const cardApi = {
+  mastery: () => request<NoteMastery[]>('/mastery'),
   noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),
   queue: (exam = 0, path = '') => request<Card[]>(`/review/queue${scopeQuery(exam, path)}`),
   stats: (exam = 0, path = '') => request<ReviewStats>(`/review/stats${scopeQuery(exam, path)}`),
