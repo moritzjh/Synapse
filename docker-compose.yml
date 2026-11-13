@@ -16,3 +16,4 @@ services:
       PUID: "1000"                           # Linux: output of `id -u` / `id -g`, so the files belong to you
       PGID: "1000"
       SYNAPSE_DEMO: "1"                      # 0 = start empty instead of with the demo notes
+      # SYNAPSE_ALLOWED_HOSTS: "notes.example.com"   # needed when you open Synapse under another name than localhost
