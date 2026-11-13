@@ -388,8 +388,9 @@ std::optional<json> McpServer::handle_one(const json& msg) {
   if (!msg.is_object() || msg.value("jsonrpc", "") != "2.0") return rpc_error(nullptr, -32600, "invalid request");
   if (!msg.contains("id")) return std::nullopt;  // notification (e.g. notifications/initialized)
   const json& id = msg["id"];
-  std::string method = msg.value("method", "");
-  json params = msg.value("params", json::object());
+  if (!msg.contains("method") || !msg["method"].is_string()) return rpc_error(id, -32600, "invalid request");
+  std::string method = msg["method"];
+  json params = msg.contains("params") && msg["params"].is_object() ? msg["params"] : json::object();
 
   try {
     if (method == "initialize") {

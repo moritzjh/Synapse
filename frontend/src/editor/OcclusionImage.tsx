@@ -27,16 +27,27 @@ function ImageView({ node, updateAttributes, selected, editor }: ReactNodeViewPr
   useEffect(() => {
     if (!editing) return
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && active) {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT') return
+      // only while the image itself is being worked on – not while typing elsewhere in the note
+      const here = target === document.body || !!box.current?.contains(target)
+      if ((e.key === 'Delete' || e.key === 'Backspace') && active && here) {
         e.preventDefault()
         setMasks(masks.filter((m) => m.id !== active))
         setActive(null)
       }
       if (e.key === 'Escape') setEditing(false)
     }
+    // clicking back into the text ends mask editing
+    const onDown = (e: PointerEvent) => {
+      if (!box.current?.closest('.img-block, [data-node-view-wrapper]')?.contains(e.target as Node)) setEditing(false)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onDown)
+    }
   })
 
   const rel = (e: React.PointerEvent) => {

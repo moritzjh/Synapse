@@ -1,5 +1,5 @@
 import { Extension, type Editor, type Range } from '@tiptap/core'
-import { PluginKey } from '@tiptap/pm/state'
+import { PluginKey, type EditorState } from '@tiptap/pm/state'
 import Suggestion from '@tiptap/suggestion'
 import { menuRenderer, type MenuItem } from './SuggestionMenu'
 import { pickImages } from './upload'
@@ -128,6 +128,12 @@ const SLASH_ITEMS: SlashItem[] = GROUPS.flatMap(([group, titles]) =>
   }),
 )
 
+/** Menus stay closed inside code blocks and inline code ("cd /usr", "m = [[1, 2]]"). */
+function notInCode(state: EditorState, pos: number) {
+  const $p = state.doc.resolve(pos)
+  return !$p.parent.type.spec.code && !state.schema.marks.code?.isInSet($p.marks())
+}
+
 /** Notion-style "/" command menu. */
 export const SlashCommands = Extension.create<SlashOptions>({
   name: 'slashCommands',
@@ -140,6 +146,7 @@ export const SlashCommands = Extension.create<SlashOptions>({
         editor: this.editor,
         pluginKey: new PluginKey('slash'),
         char: '/',
+        allow: ({ state, range }) => notInCode(state, range.from),
         items: ({ query }) => {
           const q = query.toLowerCase()
           // title prefix > title substring > keyword
@@ -183,7 +190,7 @@ export const WikilinkSuggest = Extension.create<WikilinkOptions>({
         allowSpaces: true,
         allowedPrefixes: null,
         // Stop suggesting once the link is closed with "]]".
-        allow: ({ state, range }) => !state.doc.textBetween(range.from, range.to).slice(2).includes(']'),
+        allow: ({ state, range }) => notInCode(state, range.from) && !state.doc.textBetween(range.from, range.to).slice(2).includes(']'),
         items: ({ query }) => {
           const q = query.replace(/\]+$/, '').toLowerCase()
           const matches = getTitles()

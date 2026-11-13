@@ -244,11 +244,14 @@ function showSuggest(el: HTMLElement, view: EditorView) {
   btn.onmouseleave = hideSuggestSoon
   btn.onmousedown = (e) => {
     e.preventDefault()
-    const shown = view.state.doc.textBetween(from, to)
-    const link = shown === target ? `[[${target}]]` : `[[${target}|${shown}]]`
-    view.dispatch(view.state.tr.insertText(link, from, to))
     btn.remove()
     suggestEl = null
+    // the document may have changed since the button appeared
+    if (to > view.state.doc.content.size) return
+    const shown = view.state.doc.textBetween(from, to)
+    if (shown.toLowerCase() !== target.toLowerCase()) return
+    const link = shown === target ? `[[${target}]]` : `[[${target}|${shown}]]`
+    view.dispatch(view.state.tr.insertText(link, from, to))
   }
   document.body.appendChild(btn)
   suggestEl = btn
@@ -260,7 +263,10 @@ const previewCache = new Map<number, string>()
 let previewEl: HTMLDivElement | null = null
 let previewTimer: ReturnType<typeof setTimeout> | undefined
 
+let previewGen = 0 // invalidates a preview whose note is still being fetched
+
 function hidePreview() {
+  previewGen++
   clearTimeout(previewTimer)
   previewEl?.remove()
   previewEl = null
@@ -272,6 +278,7 @@ function showPreview(link: HTMLElement, notes: NoteSummary[]) {
   if (!note) return
   clearTimeout(previewTimer)
   previewTimer = setTimeout(async () => {
+    const gen = ++previewGen
     let text = previewCache.get(note.id)
     if (text === undefined) {
       const full = await api.getNote(note.id).catch(() => null)
@@ -279,6 +286,7 @@ function showPreview(link: HTMLElement, notes: NoteSummary[]) {
       previewCache.set(note.id, text)
       setTimeout(() => previewCache.delete(note.id), 30_000)
     }
+    if (gen !== previewGen || !link.isConnected) return // pointer left or the note changed meanwhile
     hidePreview()
     const r = link.getBoundingClientRect()
     previewEl = document.createElement('div')
@@ -319,6 +327,13 @@ export const SyntaxHighlight = Extension.create<SyntaxOptions>({
           apply: (tr, old, _o, state) =>
             tr.docChanged || tr.selectionSet || tr.getMeta(key) ? decorate(state, options.getNotes(), options.getSelfTitle()) : old,
         },
+        view: () => ({
+          destroy() {
+            hidePreview()
+            suggestEl?.remove()
+            suggestEl = null
+          },
+        }),
         props: {
           decorations(state) {
             return key.getState(state)

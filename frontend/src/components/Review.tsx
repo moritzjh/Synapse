@@ -74,11 +74,18 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
   const [leaving, setLeaving] = useState<Rating | null>(null)
   const cardRef = useRef<HTMLElement>(null)
 
+  const [failed, setFailed] = useState(false)
+
   const load = useCallback(async () => {
-    const [q, s] = await Promise.all([cardApi.queue(exam, path), cardApi.stats(exam, path)])
-    setQueue(q)
-    setStats(s)
-    setRevealed(new Set())
+    try {
+      const [q, s] = await Promise.all([cardApi.queue(exam, path), cardApi.stats(exam, path)])
+      setQueue(q)
+      setStats(s)
+      setRevealed(new Set())
+      setFailed(false)
+    } catch {
+      setFailed(true)
+    }
   }, [exam, path])
 
   useEffect(() => {
@@ -110,14 +117,22 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
     async (r: Rating) => {
       if (!card || leaving) return
       setLeaving(r)
-      await Promise.all([cardApi.review(card.id, r), new Promise((ok) => setTimeout(ok, 260))])
+      try {
+        await Promise.all([cardApi.review(card.id, r), new Promise((ok) => setTimeout(ok, 260))])
+      } catch {
+        // not recorded: keep the card so it can be graded again
+        setLeaving(null)
+        setFailed(true)
+        return
+      }
+      setFailed(false)
       setRatings((x) => [...x, r])
       setRevealed(new Set())
       setLeaving(null)
       const rest = queue!.slice(1)
       if (rest.length) {
         setQueue(rest)
-        cardApi.stats(exam, path).then(setStats)
+        cardApi.stats(exam, path).then(setStats).catch(() => {})
       } else {
         await load()
       }
@@ -128,7 +143,10 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!card || ['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
+      const target = e.target as HTMLElement
+      // Only plain key presses on the page itself: a focused button, link or dialog keeps its own Enter/Space.
+      if (!card || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      if (target.closest('input, select, textarea, button, a, [role="dialog"], .modal') || document.querySelector('.modal-backdrop')) return
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault()
         if (!allRevealed) revealNext()
@@ -141,7 +159,17 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
     return () => window.removeEventListener('keydown', onKey)
   }, [card, allRevealed, revealNext, rate])
 
-  if (!queue || !stats) return <div className="scroll" />
+  if (!queue || !stats)
+    return (
+      <div className="scroll">
+        {failed && (
+          <div className="empty-state">
+            <p>{t('Die Karten konnten nicht geladen werden.')}</p>
+            <button className="btn" onClick={load}>{t('Erneut versuchen')}</button>
+          </div>
+        )}
+      </div>
+    )
   const current = exams.find((e) => e.id === exam)
   const total = done + queue.length
 
@@ -189,6 +217,7 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
           </div>
 
           <div className="study-actions">
+            {failed && <p className="error-text study-error">{t('Bewertung nicht gespeichert – bitte noch einmal.')}</p>}
             {!allRevealed ? (
               <div className="reveal-row">
                 <button className="reveal-btn" onClick={revealNext}>

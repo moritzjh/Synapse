@@ -94,7 +94,43 @@ int64_t Service::find_note(const std::string& title) {
   return 0;
 }
 
+namespace {
+
+// Deepest nesting a note may have. Real documents stay far below; the limit keeps the recursive
+// walkers (text extraction, cards, Markdown export) off the end of the stack.
+constexpr int kMaxDepth = 100;
+
+bool too_deep(const json& node, int depth = 0) {
+  if (depth > kMaxDepth) return true;
+  if (!node.is_structured()) return false;
+  for (const auto& child : node)
+    if (too_deep(child, depth + 1)) return true;
+  return false;
+}
+
+// Rejects content that could not be mirrored to Markdown later (wrong attribute types, absurd nesting)
+// before anything is stored – otherwise the note would exist in the database but break every export.
+void validate_content(const std::string& title, const std::string& content) {
+  if (title.find('\0') != std::string::npos) throw ServiceError(400, "title contains a NUL character");
+  if (title.size() > 1000) throw ServiceError(400, "title too long");
+  json doc;
+  try {
+    doc = parse_content(content);
+  } catch (const std::exception& e) {
+    throw ServiceError(400, std::string("invalid content: ") + e.what());
+  }
+  if (too_deep(doc)) throw ServiceError(400, "content is nested too deeply");
+  try {
+    doc_to_markdown(doc);
+  } catch (const std::exception& e) {
+    throw ServiceError(400, std::string("invalid content: ") + e.what());
+  }
+}
+
+}  // namespace
+
 json Service::create_note(const std::string& title, const std::string& content, const std::string& folder) {
+  validate_content(title, content);
   Note n = store_.create(title, content);
   semantic_.note_changed(n.id);
   vault_.export_note(n.id, folder);
@@ -278,11 +314,17 @@ void Service::rename_folder(const std::string& from, const std::string& to) {
 
 void Service::delete_folder(const std::string& path) {
   if (Vault::clean_folder(path).empty()) throw ServiceError(400, "invalid folder");
-  for (int64_t id : vault_.notes_in(path)) {
+  // Move the files first: if that fails nothing is deleted, and a vault scan in between cannot re-import them.
+  std::vector<int64_t> ids = vault_.notes_in(path);
+  try {
+    vault_.trash_folder(path);  // files (incl. non-notes) go to .trash as a whole
+  } catch (const std::exception& e) {
+    throw ServiceError(500, e.what());
+  }
+  for (int64_t id : ids) {
     store_.remove(id);
     semantic_.note_removed(id);
   }
-  vault_.trash_folder(path);  // files (incl. non-notes) go to .trash as a whole
   store_.remove_folder_meta(Vault::clean_folder(path));
 }
 
@@ -294,6 +336,7 @@ void Service::set_folder_meta(const std::string& path, const std::string& color,
 }
 
 json Service::update_note(int64_t id, const std::string& title, const std::string& content) {
+  validate_content(title, content);
   auto n = store_.update(id, title, content);
   if (!n) throw ServiceError(404, "note not found");
   changed(id);

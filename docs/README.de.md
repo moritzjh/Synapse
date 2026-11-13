@@ -156,6 +156,7 @@ das Frontend selbst aus.
 | `SYNAPSE_MODEL`   | Modellordner (`model.onnx`, `tokenizer.json`, `synapse.json`); ohne → keine Auto-Links |
 | `SYNAPSE_VAULT`   | Markdown-Ordner (Standard `vault`)                              |
 | `SYNAPSE_HOST`    | Bind-Adresse (Standard `127.0.0.1`, nur lokal erreichbar)       |
+| `SYNAPSE_ALLOWED_HOSTS` | weitere Hostnamen, unter denen der Server antwortet (z. B. `notizen.example.com`, `*` = alle); Standard: nur `localhost` |
 | `SYNAPSE_STATIC`  | gebautes Frontend ausliefern                                    |
 
 `synapse.json` im Modellordner: `prefix`/`query_prefix` (für e5: `"passage: "`/`"query: "`),

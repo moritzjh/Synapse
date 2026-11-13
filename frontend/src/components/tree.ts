@@ -1,4 +1,5 @@
 import { titleOf, type NoteSummary, type Tree } from '../api'
+import { locale } from '../i18n'
 
 export interface TreeNode {
   kind: 'folder' | 'note'
@@ -51,7 +52,7 @@ export function buildTree(tree: Tree): TreeNode[] {
 
   const sort = (nodes: TreeNode[]) => {
     nodes.sort((a, b) =>
-      a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }),
+      a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name, locale, { sensitivity: 'base' }),
     )
     nodes.forEach((n) => sort(n.children))
   }

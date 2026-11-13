@@ -37,7 +37,9 @@ const Menu = forwardRef<MenuHandle, MenuProps>(({ items, command, empty }, ref) 
         return true
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
-        if (items[index]) command(items[index])
+        // nothing to pick ("see /etc/hosts" + Enter): let the key through
+        if (!items[index]) return false
+        command(items[index])
         return true
       }
       return false

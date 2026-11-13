@@ -803,7 +803,36 @@ std::string doc_to_markdown(const json& doc) {
   return out;
 }
 
-json markdown_to_doc(const std::string& markdown) {
+namespace {
+
+// md4c recurses once per quote level; cap runs of ">" so a hostile or broken file cannot overflow the stack.
+std::string cap_quote_depth(const std::string& md) {
+  constexpr int kMaxQuotes = 32;
+  std::string out;
+  out.reserve(md.size());
+  bool line_start = true;
+  int quotes = 0;
+  for (char c : md) {
+    if (c == '\n') {
+      line_start = true;
+      quotes = 0;
+      out += c;
+      continue;
+    }
+    if (line_start && c == '>') {
+      if (++quotes > kMaxQuotes) continue;
+    } else if (c != ' ' && c != '\t') {
+      line_start = false;
+    }
+    out += c;
+  }
+  return out;
+}
+
+}  // namespace
+
+json markdown_to_doc(const std::string& raw) {
+  const std::string markdown = cap_quote_depth(raw);
   Builder b;
   MD_PARSER parser{};
   parser.flags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_PERMISSIVEURLAUTOLINKS |

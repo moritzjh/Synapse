@@ -18,10 +18,14 @@ import { SlashCommands, WikilinkSuggest } from './commands'
 import { insertImages } from './upload'
 import { CodeBlock } from './CodeBlock'
 import { BlockBackspace, CardTyping, CaretMargin } from './typing'
-import { BlockFormula, InlineFormula, editMath, katexOptions } from './Math'
+import { BlockFormula, InlineFormula, closeMathEditor, editMath, katexOptions } from './Math'
 import { BlockHandle, TARGETS, applyTarget, type Target } from './BlockHandle'
 import type { Doc } from './doc'
 import { t } from '../i18n'
+
+// translated placeholders for empty list items and quotes (see index.css)
+document.documentElement.style.setProperty('--ph-list', JSON.stringify(t('Liste')))
+document.documentElement.style.setProperty('--ph-quote', JSON.stringify(t('Zitat')))
 
 export { toDoc } from './doc'
 export type { Doc } from './doc'
@@ -68,12 +72,11 @@ export default function RichEditor(props: Props) {
       PageLink.configure({ getNotes: () => cb.current.getNotes(), onOpenNote: (id) => cb.current.onOpenNote(id) }),
       Placeholder.configure({
         includeChildren: true,
-        placeholder: ({ node, editor, pos }) => {
+        // Only the node itself is looked at here: this runs while a transaction is applied, when
+        // editor.state is still the previous document. List and quote placeholders come from CSS.
+        placeholder: ({ node }) => {
           if (node.type.name === 'heading') return t('Überschrift {level}', { level: node.attrs.level })
           if (node.type.name === 'detailsSummary') return t('Titel')
-          const parent = editor.state.doc.resolve(pos).parent.type.name
-          if (parent === 'listItem' || parent === 'taskItem') return t('Liste')
-          if (parent === 'blockquote') return t('Zitat')
           return t('Schreibe, oder tippe / für Blöcke')
         },
       }),
@@ -102,6 +105,7 @@ export default function RichEditor(props: Props) {
       },
     },
     onUpdate: ({ editor }) => cb.current.onChange(editor.getJSON() as Doc),
+    onDestroy: () => closeMathEditor(),
   })
   const editorRef = useRef<Editor | null>(null)
   editorRef.current = editor

@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -70,6 +72,12 @@ class Vault {
   NoteStore& store_;
   std::filesystem::path root_;
   Callback on_changed_, on_removed_;
+
+  // Scans a tracked file must be missing in a row before its note is deleted (~6 s with the 2 s poll).
+  static constexpr int kMissingScans = 3;
+  std::map<int64_t, int> missing_;
+  std::set<std::string> failed_;  // files that could not be imported (reported once)
+  bool warned_empty_ = false;
 
   std::mutex mu_;
   std::mutex stop_mu_;

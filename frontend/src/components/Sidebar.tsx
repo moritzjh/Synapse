@@ -63,15 +63,20 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
 
   useEffect(() => {
     if (!query.trim()) return setHits([])
+    let cancelled = false
     const t = setTimeout(async () => {
-      const [text, sem] = await Promise.all([api.search(query), semanticApi.search(query).catch(() => [])])
+      const [text, sem] = await Promise.all([api.search(query).catch(() => []), semanticApi.search(query).catch(() => [])])
+      if (cancelled) return // a newer query is already on its way
       const seen = new Set(text.map((h) => h.id))
       setHits([
         ...text,
         ...sem.filter((s) => !seen.has(s.id) && s.score > 0.3).map((s) => ({ id: s.id, title: s.title, snippet: '', semantic: true })),
       ])
     }, 150)
-    return () => clearTimeout(t)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
   }, [query])
 
   useEffect(() => {

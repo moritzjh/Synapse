@@ -12,6 +12,9 @@ import { t } from '../i18n'
 
 let open: { el: HTMLDivElement; close: () => void } | null = null
 
+/** Closes an open formula popover (the editor it belongs to is going away). */
+export const closeMathEditor = () => open?.close()
+
 export function editMath(editor: Editor, pos: number, block: boolean) {
   open?.close()
   const node = editor.state.doc.nodeAt(pos)

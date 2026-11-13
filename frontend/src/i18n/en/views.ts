@@ -1,5 +1,9 @@
 /** English UI text, keyed by the German original. */
 export default {
+  'Die Karten konnten nicht geladen werden.': 'The cards could not be loaded.',
+  'Erneut versuchen': 'Try again',
+  'Bewertung nicht gespeichert – bitte noch einmal.': 'Rating was not saved – please try again.',
+  'Nicht gespeichert – neuer Versuch…': 'Not saved – retrying…',
   'Sitzt': 'Solid',
   'Lässt nach': 'Fading',
   'Fast vergessen': 'Nearly forgotten',

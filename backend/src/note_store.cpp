@@ -407,8 +407,9 @@ std::string scope_sql(const CardScope& scope) {
     std::string dir = scope.path;
     if (dir.size() > 3 && dir.compare(dir.size() - 3, 3, ".md") == 0) dir.resize(dir.size() - 3);
     dir += "/";
+    // length() counts characters like substr() does – a byte count would break on "Küche/"
     out += " AND c.note_id IN (SELECT note_id FROM vault_files WHERE path = " + sql_quote(scope.path) +
-           " OR substr(path, 1, " + std::to_string(dir.size()) + ") = " + sql_quote(dir) + ")";
+           " OR substr(path, 1, length(" + sql_quote(dir) + ")) = " + sql_quote(dir) + ")";
   }
   return out;
 }

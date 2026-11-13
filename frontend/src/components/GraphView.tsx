@@ -86,7 +86,7 @@ export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
   const byMastery = settings.view === 'mastery'
 
   useEffect(() => {
-    api.graph().then(setRaw)
+    api.graph().then(setRaw).catch(() => setRaw({ nodes: [], edges: [] }))
     cardApi.mastery().then((rows) => setMastery(new Map(rows.map((r) => [r.note_id, r])))).catch(() => {})
   }, [])
   useEffect(() => saveSettings(settings), [settings])
@@ -277,16 +277,19 @@ export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
 
   // ---- time-lapse (Obsidian's "Animate") -------------------------------------------------------
 
+  const lapse = useRef<ReturnType<typeof setInterval>>(undefined)
+  useEffect(() => () => clearInterval(lapse.current), [])
   const animate = () => {
     if (!raw) return
+    clearInterval(lapse.current)
     const total = order.length
     let n = 0
     setReveal(0)
     const step = Math.max(1, Math.ceil(total / 90))
-    const timer = setInterval(() => {
+    lapse.current = setInterval(() => {
       n += step
       if (n >= total) {
-        clearInterval(timer)
+        clearInterval(lapse.current)
         setReveal(null)
       } else setReveal(n)
     }, 55)

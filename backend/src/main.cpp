@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <iostream>
 #include <json.hpp>
+#include <set>
+#include <sstream>
 
 #include "markdown.hpp"
 #include "mcp.hpp"
@@ -60,13 +62,45 @@ std::unique_ptr<Embedder> load_embedder() {
   }
 }
 
-bool local_origin(const httplib::Request& req) {
-  if (!req.has_header("Origin")) return true;
-  std::string o = req.get_header_value("Origin");
-  for (const char* ok : {"http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1"})
-    if (o.rfind(ok, 0) == 0) return true;
-  return false;
+// "Example.com:8080" / "[::1]:8080" → lower-case host without the port.
+std::string host_only(std::string h) {
+  for (auto& c : h) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (!h.empty() && h[0] == '[') {
+    size_t close = h.find(']');
+    return close == std::string::npos ? h : h.substr(0, close + 1);
+  }
+  size_t colon = h.rfind(':');
+  return colon == std::string::npos ? h : h.substr(0, colon);
 }
+
+// Host names this server answers to. Loopback names always; more via
+// SYNAPSE_ALLOWED_HOSTS="notes.example.com,192.168.1.20" ("*" = any).
+// Checking the Host header stops DNS-rebinding, checking Origin stops other
+// websites from calling the API of a server running on localhost.
+struct HostPolicy {
+  std::set<std::string> allowed{"localhost", "127.0.0.1", "[::1]"};
+  bool any = false;
+
+  explicit HostPolicy(const std::string& extra) {
+    std::stringstream ss(extra);
+    std::string h;
+    while (std::getline(ss, h, ',')) {
+      h.erase(0, h.find_first_not_of(" \t"));
+      h.erase(h.find_last_not_of(" \t") + 1);
+      if (h == "*") any = true;
+      else if (!h.empty()) allowed.insert(host_only(h));
+    }
+  }
+
+  bool host_ok(const std::string& host) const { return any || allowed.count(host_only(host)) > 0; }
+
+  // "https://notes.example.com:8443" → allowed if its host is one of ours
+  bool origin_ok(const std::string& origin) const {
+    size_t scheme = origin.find("://");
+    if (scheme == std::string::npos) return false;  // "null" and other opaque origins
+    return host_ok(origin.substr(scheme + 3));
+  }
+};
 
 }  // namespace
 
@@ -100,10 +134,23 @@ int main(int argc, char** argv) {
 
   httplib::Server srv;
   srv.set_payload_max_length(25 * 1024 * 1024);
-  srv.set_default_headers({
-      {"Access-Control-Allow-Origin", "*"},
-      {"Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"},
-      {"Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version"},
+  const HostPolicy hosts(env("SYNAPSE_ALLOWED_HOSTS", ""));
+  srv.set_pre_routing_handler([&hosts](const httplib::Request& req, httplib::Response& res) {
+    auto deny = [&](const char* why) {
+      send_json(res, {{"error", why}}, 403);
+      return httplib::Server::HandlerResponse::Handled;
+    };
+    if (!hosts.host_ok(req.get_header_value("Host"))) return deny("host not allowed (set SYNAPSE_ALLOWED_HOSTS)");
+    if (req.has_header("Origin")) {
+      std::string origin = req.get_header_value("Origin");
+      if (!hosts.origin_ok(origin)) return deny("origin not allowed");
+      // only our own origins may read responses (dev server on another port, reverse proxy)
+      res.set_header("Access-Control-Allow-Origin", origin);
+      res.set_header("Vary", "Origin");
+      res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      res.set_header("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version");
+    }
+    return httplib::Server::HandlerResponse::Unhandled;
   });
   srv.Options(R"(/(api|mcp).*)", [](const httplib::Request&, httplib::Response& res) { res.status = 204; });
 
@@ -112,6 +159,12 @@ int main(int argc, char** argv) {
       std::rethrow_exception(ep);
     } catch (const ServiceError& e) {
       send_json(res, {{"error", e.what()}}, e.status);
+    } catch (const json::exception& e) {
+      send_json(res, {{"error", std::string("invalid request: ") + e.what()}}, 400);  // wrong JSON types
+    } catch (const std::invalid_argument&) {
+      send_json(res, {{"error", "invalid number"}}, 400);
+    } catch (const std::out_of_range&) {
+      send_json(res, {{"error", "number out of range"}}, 400);
     } catch (const std::exception& e) {
       send_json(res, {{"error", e.what()}}, 500);
     }
@@ -167,8 +220,12 @@ int main(int argc, char** argv) {
   srv.Put(R"(/api/notes/(\d+))", [&](Req req, Res res) {
     std::string title, content;
     bool md;
-    note_fields(parse_body(req), title, content, md);
+    json body = parse_body(req);
     int64_t id = path_id(req);
+    // a rename-only request keeps the body instead of emptying the note
+    if (!body.contains("content") && !body.contains("markdown")) body["content"] = svc.get_note(id)["content"];
+    if (!body.contains("title")) body["title"] = svc.get_note(id)["title"];
+    note_fields(body, title, content, md);
     send_json(res, md ? svc.update_note_markdown(id, title, content) : svc.update_note(id, title, content));
   });
   srv.Delete(R"(/api/notes/(\d+))", [&](Req req, Res res) {
@@ -217,7 +274,6 @@ int main(int argc, char** argv) {
 
   // ---- MCP (Streamable HTTP; responses are plain JSON, no SSE stream) ----
   srv.Post("/mcp", [&](Req req, Res res) {
-    if (!local_origin(req)) return send_json(res, {{"error", "forbidden origin"}}, 403);
     auto msg = json::parse(req.body, nullptr, false);
     if (msg.is_discarded()) {
       return send_json(res, {{"jsonrpc", "2.0"}, {"id", nullptr}, {"error", {{"code", -32700}, {"message", "parse error"}}}}, 400);

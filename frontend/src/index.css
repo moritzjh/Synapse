@@ -1300,3 +1300,7 @@ button.folder-big:hover { background: var(--bg-active); }
 }
 .graph-study:hover { opacity: 0.88; }
 .graph-study .icon { width: 14px; height: 14px; }
+
+/* placeholders that depend on the parent block */
+.ProseMirror li p.is-empty::before { content: var(--ph-list, attr(data-placeholder)); }
+.ProseMirror blockquote > p.is-empty::before { content: var(--ph-quote, attr(data-placeholder)); }

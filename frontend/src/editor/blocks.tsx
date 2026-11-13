@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { Icon } from '../components/Icons'
-import type { NoteSummary } from '../api'
+import { titleOf, type NoteSummary } from '../api'
 import { t } from '../i18n'
 
 export interface PageLinkOptions {
@@ -20,7 +20,7 @@ function PageLinkView({ node, extension, selected }: ReactNodeViewProps) {
       data-drag-handle
     >
       <Icon name="note" />
-      <span>{note?.title ?? node.attrs.title ?? t('Gelöschte Seite')}</span>
+      <span>{note ? titleOf(note.title) : node.attrs.title || t('Gelöschte Seite')}</span>
     </NodeViewWrapper>
   )
 }

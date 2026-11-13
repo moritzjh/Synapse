@@ -129,7 +129,15 @@ export function fieldToText(html: string): { text: string; images: string[] } {
     if (tag === 'BR') return void (text += '\n')
     if (tag === 'IMG') {
       const src = n.getAttribute('src')
-      if (src) images.push(decodeURIComponent(src))
+      if (src) {
+        let name = src
+        try {
+          name = decodeURIComponent(src)
+        } catch {
+          /* a literal "%" in the file name */
+        }
+        images.push(name)
+      }
       return
     }
     if (tag === 'SCRIPT' || tag === 'STYLE') return

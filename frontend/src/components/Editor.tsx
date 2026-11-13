@@ -29,7 +29,7 @@ export default function NotePage(props: Props) {
   const [doc, setDoc] = useState<Doc | null>(null)
   const [version, setVersion] = useState(0) // bump to reload the editor with new content
   const [text, setText] = useState('')
-  const [status, setStatus] = useState<'saved' | 'dirty' | 'saving'>('saved')
+  const [status, setStatus] = useState<'saved' | 'dirty' | 'saving' | 'error'>('saved')
   const [backlinks, setBacklinks] = useState<NoteSummary[]>([])
   const [similar, setSimilar] = useState<Neighbor[]>([])
   const [cards, setCards] = useState<Card[]>([])
@@ -38,6 +38,8 @@ export default function NotePage(props: Props) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const savedAt = useRef(0)
   const saving = useRef(false)
+  const inFlight = useRef<Promise<void>>(Promise.resolve()) // saves run one after another
+  const latestDoc = useRef<Doc | null>(null) // what the editor shows right now
   const lastEdit = useRef(0)
   const notesRef = useRef(notes)
   notesRef.current = notes
@@ -46,9 +48,13 @@ export default function NotePage(props: Props) {
   const titleRef = useRef<HTMLInputElement>(null)
   const focusTitle = useRef<boolean | null>(false) // null once done, so reloads don't steal focus
 
-  const load = useCallback(async () => {
-    const n = await api.getNote(noteId)
+  const busy = () => !!pending.current || saving.current || Date.now() - lastEdit.current < 4000
+
+  const load = useCallback(async (fetched?: Note, onlyIfIdle = false) => {
+    const n = fetched ?? (await api.getNote(noteId))
+    if (onlyIfIdle && busy()) return // the user started typing while we fetched
     const d = toDoc(n.content)
+    latestDoc.current = d
     savedAt.current = n.updated_at
     if (focusTitle.current === false) focusTitle.current = n.title ? null : true // new note: start typing the title
     setTitle(n.title)
@@ -67,38 +73,61 @@ export default function NotePage(props: Props) {
   // Reload when the note changed elsewhere (Obsidian, MCP) and we have no local edits.
   useEffect(() => {
     const t = setInterval(async () => {
-      const busy = () => pending.current || saving.current || Date.now() - lastEdit.current < 4000
       if (busy() || source !== null) return
       const n = await api.getNote(noteId).catch(() => null)
-      if (n && n.updated_at !== savedAt.current && !busy()) load()
+      if (n && n.updated_at !== savedAt.current) load(n, true)
     }, 3000)
     return () => clearInterval(t)
   }, [noteId, load, source])
 
-  const flush = useCallback(async () => {
+  const flush = useCallback((): Promise<void> => {
     clearTimeout(timer.current)
-    const p = pending.current
-    if (!p) return
-    pending.current = null
-    setStatus('saving')
-    saving.current = true
-    let saved
-    try {
-      saved =
-        p.markdown !== undefined
-          ? await api.updateMarkdown(noteId, p.title, p.markdown)
-          : await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
-    } finally {
-      saving.current = false
+    const run = async () => {
+      const p = pending.current
+      if (!p) return
+      pending.current = null
+      setStatus('saving')
+      saving.current = true
+      try {
+        const saved =
+          p.markdown !== undefined
+            ? await api.updateMarkdown(noteId, p.title, p.markdown)
+            : await api.updateNote(noteId, p.title, JSON.stringify(p.doc))
+        savedAt.current = saved.updated_at
+        setStatus(pending.current ? 'dirty' : 'saved')
+        onSaved()
+        cardApi.noteCards(noteId).then(setCards).catch(() => {})
+        setTimeout(() => semanticApi.similar(noteId).then(setSimilar).catch(() => {}), 2500)
+      } catch {
+        // keep the edit and try again; a newer edit made meanwhile wins
+        pending.current ??= p
+        setStatus('error')
+        clearTimeout(timer.current)
+        timer.current = setTimeout(() => void flushRef.current(), 4000)
+      } finally {
+        saving.current = false
+      }
     }
-    savedAt.current = saved.updated_at
-    setStatus(pending.current ? 'dirty' : 'saved')
-    onSaved()
-    cardApi.noteCards(noteId).then(setCards)
-    setTimeout(() => semanticApi.similar(noteId).then(setSimilar).catch(() => {}), 2500)
+    inFlight.current = inFlight.current.then(run, run)
+    return inFlight.current
   }, [noteId, onSaved])
+  const flushRef = useRef(flush)
+  flushRef.current = flush
 
   useEffect(() => () => void flush(), [flush])
+
+  // Closing or reloading the tab within the save delay: send the last edit along.
+  useEffect(() => {
+    const onHide = () => {
+      const p = pending.current
+      if (!p) return
+      pending.current = null
+      const body = p.markdown !== undefined ? { title: p.title, markdown: p.markdown } : { title: p.title, content: JSON.stringify(p.doc) }
+      fetch(`/api/notes/${noteId}`, { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {})
+    }
+    window.addEventListener('pagehide', onHide)
+    return () => window.removeEventListener('pagehide', onHide)
+  }, [noteId])
 
   const schedule = (next: { title: string; doc?: Doc; markdown?: string }) => {
     pending.current = next
@@ -113,8 +142,8 @@ export default function NotePage(props: Props) {
     if (source === null) {
       setSource((await api.getMarkdown(noteId)).markdown)
     } else {
+      await load() // first, so the editor never mounts with the pre-Markdown document
       setSource(null)
-      await load()
     }
   }
 
@@ -134,7 +163,7 @@ export default function NotePage(props: Props) {
           onFolder={(p) => flush().then(() => props.onOpenFolder(p))}
           onNote={(id) => flush().then(() => onOpenNote(id))}
         />
-        <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? t('Speichert…') : t('Bearbeitet')}</span>
+        <span className="save-state">{status === 'saved' ? '' : status === 'saving' ? t('Speichert…') : status === 'error' ? t('Nicht gespeichert – neuer Versuch…') : t('Bearbeitet')}</span>
         {cards.length > 0 && self?.path && (
           <button className="study-chip" title={t('Karten dieser Notiz lernen')} onClick={() => flush().then(() => props.onStudy(self.path, titleOf(title)))}>
             <Icon name="cards" /> {t('Lernen')}
@@ -146,7 +175,12 @@ export default function NotePage(props: Props) {
         <button className="icon-btn" title={t('Lokaler Graph')} onClick={props.onLocalGraph}>
           <Icon name="graph" />
         </button>
-        <button className="icon-btn" title={t('Notiz löschen')} onClick={() => confirm(t('„{title}“ löschen?', { title: titleOf(title) })) && onDelete(noteId)}>
+        <button className="icon-btn" title={t('Notiz löschen')} onClick={() => {
+          if (!confirm(t('„{title}“ löschen?', { title: titleOf(title) }))) return
+          clearTimeout(timer.current)
+          pending.current = null // nothing left to save
+          onDelete(noteId)
+        }}>
           <Icon name="trash" />
         </button>
       </div>
@@ -164,7 +198,7 @@ export default function NotePage(props: Props) {
           placeholder={t('Ohne Titel')}
           onChange={(e) => {
             setTitle(e.target.value)
-            schedule(source !== null ? { title: e.target.value, markdown: source } : { title: e.target.value, doc: pending.current?.doc ?? doc })
+            schedule(source !== null ? { title: e.target.value, markdown: source } : { title: e.target.value, doc: pending.current?.doc ?? latestDoc.current ?? doc })
           }}
         />
         <div className="note-meta">
@@ -208,6 +242,7 @@ export default function NotePage(props: Props) {
             }}
             onCreateSubpage={(t) => propsRef.current.onCreateSubpage(t)}
             onChange={(d) => {
+              latestDoc.current = d
               setText(docText(d))
               schedule({ title, doc: d })
             }}

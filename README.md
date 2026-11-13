@@ -174,6 +174,7 @@ Tools: `list_notes`, `read_note`, `search_notes` (full-text + semantic), `create
 | `SYNAPSE_VAULT` | `vault` | Markdown folder (open it in Obsidian) |
 | `SYNAPSE_MODEL` | – | embedding model folder; without it there are no semantic links |
 | `SYNAPSE_HOST` | `127.0.0.1` | bind address. There is **no login yet**, so keep it local or put an authenticating proxy in front |
+| `SYNAPSE_ALLOWED_HOSTS` | – | extra host names the server answers to, e.g. `notes.example.com,192.168.1.20` (`*` = any). By default only `localhost` / `127.0.0.1`, which blocks other websites and DNS-rebinding from reaching your notes |
 | `SYNAPSE_STATIC` | – | serve the built frontend |
 | `SYNAPSE_DEMO` | `1` (Docker) | copy the demo notes on the very first start |
 
