@@ -1,5 +1,7 @@
 /** English UI text, keyed by the German original. */
 export default {
+  'Zuklappen': 'Collapse',
+  'Aufklappen': 'Expand',
   // App
   'Backend nicht erreichbar ({message})': 'Backend unreachable ({message})',
   'Wähle eine Notiz oder lege eine neue an.': 'Pick a note or create a new one.',

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { uploadImage } from '../editor/upload'
 import { Icon } from '../components/Icons'
@@ -58,6 +58,13 @@ type Phase =
 export default function AnkiImport({ onClose, onDone }: Props) {
   const [phase, setPhase] = useState<Phase>({ step: 'pick' })
   const [over, setOver] = useState(false)
+  const busy = phase.step === 'work'
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !busy && onClose()
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [busy, onClose])
 
   const run = async (file: File) => {
     try {
@@ -104,7 +111,7 @@ export default function AnkiImport({ onClose, onDone }: Props) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && phase.step !== 'work' && onClose()}>
-      <div className="modal import-modal">
+      <div className="modal import-modal" role="dialog" aria-modal="true" aria-label={t('Aus Anki importieren')}>
         <header>
           <h2>{t('Aus Anki importieren')}</h2>
           {phase.step !== 'work' && (
@@ -131,7 +138,7 @@ export default function AnkiImport({ onClose, onDone }: Props) {
               <Icon name="import" />
               <b>{t('.apkg oder .colpkg hierher ziehen')}</b>
               <span>{t('oder klicken, um eine Datei zu wählen')}</span>
-              <input type="file" accept=".apkg,.colpkg" onChange={(e) => e.target.files?.[0] && run(e.target.files[0])} hidden />
+              <input type="file" accept=".apkg,.colpkg" onChange={(e) => e.target.files?.[0] && run(e.target.files[0])} className="visually-hidden" autoFocus />
             </label>
             <ul className="import-notes">
               <li>{fill(t('Jeder Stapel wird zu einer Notiz im Ordner {folder}, Unterstapel zu Unterseiten.'), { folder: <code>Anki/</code> })}</li>

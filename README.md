@@ -11,7 +11,7 @@ and watch a knowledge graph connect related notes by itself, using a small AI mo
 [![Docker image](https://github.com/moritzjh/Synapse/actions/workflows/docker.yml/badge.svg)](https://github.com/moritzjh/Synapse/pkgs/container/synapse)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Quick start](#quick-start) · [Features](#features) · [Comparison](#how-it-compares) · [AI / MCP](#ai-assistants-mcp) · [Deutsch](docs/README.de.md)
+[Website](https://moritzjh.github.io/Synapse/) · [Quick start](#quick-start) · [Features](#features) · [Comparison](#how-it-compares) · [AI / MCP](#ai-assistants-mcp) · [Deutsch](docs/README.de.md)
 
 <img src="docs/screenshots/demo.gif" alt="Writing a flashcard in a note, studying it and exploring the graph" width="860">
 

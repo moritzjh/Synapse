@@ -1,5 +1,7 @@
 /** English UI text, keyed by the German original. */
 export default {
+  'Ordner': 'Folders',
+  'Bereich {n} aufdecken': 'Reveal area {n}',
   'Die Karten konnten nicht geladen werden.': 'The cards could not be loaded.',
   'Erneut versuchen': 'Try again',
   'Bewertung nicht gespeichert – bitte noch einmal.': 'Rating was not saved – please try again.',

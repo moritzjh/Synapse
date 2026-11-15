@@ -1304,3 +1304,8 @@ button.folder-big:hover { background: var(--bg-active); }
 /* placeholders that depend on the parent block */
 .ProseMirror li p.is-empty::before { content: var(--ph-list, attr(data-placeholder)); }
 .ProseMirror blockquote > p.is-empty::before { content: var(--ph-quote, attr(data-placeholder)); }
+
+/* ---------- accessibility ---------- */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dropzone:focus-within { border-color: var(--accent); background: var(--accent-soft); }
+.tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

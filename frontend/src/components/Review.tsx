@@ -318,7 +318,7 @@ function CardBody({ card, revealed, allRevealed, reveal }: { card: Card; reveale
               {m.label && <span>{m.label}</span>}
             </div>
           ) : (
-            <button key={m.id} className={`fc-mask ${i === revealed.size ? 'next' : ''}`} style={maskStyle(m)} onClick={() => reveal(i)}>
+            <button key={m.id} className={`fc-mask ${i === revealed.size ? 'next' : ''}`} style={maskStyle(m)} onClick={() => reveal(i)} aria-label={t('Bereich {n} aufdecken', { n: i + 1 })}>
               {i + 1}
             </button>
           ),

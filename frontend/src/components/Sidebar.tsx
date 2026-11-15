@@ -172,6 +172,18 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
             e.dataTransfer.effectAllowed = 'move'
           }}
           {...dropProps(node.key)}
+          role="treeitem"
+          aria-selected={active}
+          aria-expanded={hasChildren || !isNote ? open : undefined}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return // keys typed in the rename field or on inner buttons
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.currentTarget.click()
+            } else if (e.key === 'ArrowRight' && !open) toggle(node.key)
+            else if (e.key === 'ArrowLeft' && open) toggle(node.key)
+          }}
           onClick={() => {
             if (isNote) return onNavigate({ kind: 'note', id: node.note!.id })
             onNavigate({ kind: 'folder', path: node.key })
@@ -189,6 +201,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
               toggle(node.key)
             }}
             tabIndex={-1}
+            aria-label={open ? t('Zuklappen') : t('Aufklappen')}
           >
             <Icon name="chevron" />
           </button>
@@ -292,7 +305,7 @@ export default function Sidebar({ tree, view, due, status, onNavigate, onCreateN
           {hits.length === 0 && <li className="muted" style={{ padding: '4px 10px' }}>{t('Nichts gefunden')}</li>}
         </ul>
       ) : (
-        <ul className="tree" {...dropProps('')}>
+        <ul className="tree" role="tree" {...dropProps('')}>
           {nodes.map((n) => renderNode(n, 0))}
         </ul>
       )}
