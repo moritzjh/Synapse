@@ -16,7 +16,7 @@ using json = nlohmann::json;
 
 namespace {
 
-constexpr int kSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 int64_t now_ms() {
   using namespace std::chrono;
@@ -115,6 +115,18 @@ void NoteStore::migrate() {
         color TEXT NOT NULL DEFAULT '',
         icon  TEXT NOT NULL DEFAULT ''
       );
+    )sql");
+  }
+  if (version < 5) {
+    db_.exec(R"sql(
+      -- "Explain it" attempts: how much of a note the user could reproduce from memory.
+      CREATE TABLE IF NOT EXISTS explain_attempts (
+        id      INTEGER PRIMARY KEY,
+        note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        ts      INTEGER NOT NULL,
+        score   REAL NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS explain_attempts_note ON explain_attempts(note_id, ts);
     )sql");
   }
   db_.exec(("PRAGMA user_version = " + std::to_string(kSchemaVersion)).c_str());
@@ -579,6 +591,19 @@ std::vector<NoteMastery> NoteStore::note_mastery(int64_t now) {
   }
   finish();
   return out;
+}
+
+std::optional<std::pair<int64_t, double>> NoteStore::last_explain_attempt(int64_t note_id) {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, "SELECT ts, score FROM explain_attempts WHERE note_id = ? ORDER BY ts DESC LIMIT 1");
+  s.bind(1, note_id);
+  if (!s.step()) return std::nullopt;
+  return std::make_pair(s.col_int(0), s.col_double(1));
+}
+
+void NoteStore::add_explain_attempt(int64_t note_id, int64_t ts, double score) {
+  std::lock_guard lock(mu_);
+  Stmt(db_, "INSERT INTO explain_attempts(note_id, ts, score) VALUES (?, ?, ?)").bind(1, note_id).bind(2, ts).bind(3, score).run();
 }
 
 // ---- folder colour / icon -------------------------------------------------------

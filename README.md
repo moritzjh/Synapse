@@ -109,6 +109,7 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 - Scheduling with **FSRS-5** (the algorithm of modern Anki), keys `Space` and `1`–`4`
 - **Exams:** set a date and the notes it covers. New cards are spread over the days left and weak cards are pulled before the exam, with a predicted retention on exam day
 - Study everything, one exam, one folder or a single note, right from the sidebar
+- **Explain mode** (Feynman technique): the note is hidden, you write what you remember, and the local model marks which passages you explained, which only partly and which are missing, with the key terms you left out
 - **Import your Anki decks** (`.apkg` / `.colpkg`, old and new format): decks become notes, cloze, reversed cards, images and MathJax are kept
 
 **Knowledge graph (Obsidian-style)**
@@ -201,6 +202,8 @@ and embeddings are verified against the Hugging Face reference implementation.
 - [x] Markdown vault (Obsidian compatible), MCP server
 - [x] Databases with formulas, folders, LaTeX, Anki import
 - [x] Knowledge view: the graph coloured by how well you know each note
+- [x] Explain mode: write a note from memory, see what you missed
+- [ ] Mock exams: a timed test across all notes of an exam
 - [ ] Desktop app with installer (Tauri)
 - [ ] Mobile-friendly PWA for studying on the go
 - [ ] Login + multi-user for server installs

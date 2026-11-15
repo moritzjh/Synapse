@@ -142,6 +142,10 @@ class NoteStore {
   // One entry per note that has cards.
   std::vector<NoteMastery> note_mastery(int64_t now_ms);
 
+  // --- "explain it" attempts ---
+  std::optional<std::pair<int64_t, double>> last_explain_attempt(int64_t note_id);  // (ts, score)
+  void add_explain_attempt(int64_t note_id, int64_t ts, double score);
+
   // --- folder colour / icon ---
   std::vector<FolderMeta> folder_meta();
   void set_folder_meta(const FolderMeta& m);  // empty colour and icon = remove

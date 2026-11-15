@@ -195,6 +195,26 @@ export const cardApi = {
     request<Card>(`/cards/${id}/review`, { method: 'POST', body: JSON.stringify({ rating }) }),
 }
 
+export interface ExplainOutline {
+  passages: number
+  headings: string[]
+  previous: { ts: number; score: number } | null
+  semantic: boolean
+}
+
+export interface ExplainResult {
+  /** 0..1, passages weighted by length */
+  score: number
+  semantic: boolean
+  passages: { heading: string; text: string; status: 'covered' | 'partial' | 'missing'; missing_terms: string[] }[]
+  previous: { ts: number; score: number } | null
+}
+
+export const explainApi = {
+  outline: (id: number) => request<ExplainOutline>(`/notes/${id}/explain`, { method: 'POST', body: '{}' }),
+  compare: (id: number, text: string) => request<ExplainResult>(`/notes/${id}/explain`, { method: 'POST', body: JSON.stringify({ text }) }),
+}
+
 export const semanticApi = {
   similar: (id: number) => request<Neighbor[]>(`/notes/${id}/similar`),
   search: (q: string) => request<Neighbor[]>(`/semantic-search?q=${encodeURIComponent(q)}`),

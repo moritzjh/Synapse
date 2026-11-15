@@ -7,6 +7,7 @@ import Review from './components/Review'
 import Exams from './components/Exams'
 import FolderPage from './components/FolderPage'
 import AnkiImport from './import/AnkiImport'
+import Explain from './components/Explain'
 import type { StudyScope } from './components/Review'
 import { t } from './i18n'
 
@@ -15,6 +16,7 @@ export type View =
   | { kind: 'graph'; focus?: number }
   | { kind: 'review'; exam?: number; scope?: StudyScope }
   | { kind: 'folder'; path: string }
+  | { kind: 'explain'; id: number }
   | { kind: 'exams' }
   | { kind: 'home' }
 
@@ -118,7 +120,10 @@ export default function App() {
             onDelete={deleteNote}
             onCreateSubpage={(title) => api.createNote(title, '', { parentId: view.id }).then(async (n) => (await refresh(), n))}
             onLocalGraph={() => setView({ kind: 'graph', focus: view.id })}
+            onExplain={() => setView({ kind: 'explain', id: view.id })}
           />
+        ) : view.kind === 'explain' && notes.some((n) => n.id === view.id) ? (
+          <Explain key={view.id} note={notes.find((n) => n.id === view.id)!} onOpenNote={openNote} onStudy={study} />
         ) : view.kind === 'graph' ? (
           <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} onStudy={study} />
         ) : view.kind === 'review' ? (

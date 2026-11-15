@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "content.hpp"
+#include "explain.hpp"
 #include "markdown.hpp"
 #include "wikilinks.hpp"
 
@@ -404,6 +405,35 @@ json Service::review_queue(const CardScope& scope, int limit) {
 json Service::review_stats(const CardScope& scope) {
   ReviewStats st = store_.review_stats(now_ms(), kNewCardsPerDay, scope);
   return {{"due", st.due}, {"new", st.new_available}, {"total", st.total}, {"reviewed_today", st.reviewed_today}};
+}
+
+json Service::explain(int64_t note_id, const std::string& explanation) {
+  auto n = store_.get(note_id);
+  if (!n) throw ServiceError(404, "note not found");
+  if (explanation.size() > 100'000) throw ServiceError(400, "explanation too long");
+  json doc = parse_content(n->content);
+  json previous = nullptr;
+  if (auto last = store_.last_explain_attempt(note_id)) previous = {{"ts", last->first}, {"score", last->second}};
+
+  bool blank = explanation.find_first_not_of(" \t\r\n") == std::string::npos;
+  if (blank) {
+    auto passages = explain_passages(doc);
+    json headings = json::array();
+    for (const auto& p : passages)
+      if (!p.heading.empty() && (headings.empty() || headings.back() != p.heading)) headings.push_back(p.heading);
+    return {{"passages", passages.size()}, {"headings", headings}, {"previous", previous}, {"semantic", semantic_.enabled()}};
+  }
+
+  EmbedFn embed;
+  if (semantic_.enabled()) embed = [this](const std::vector<std::string>& texts) { return semantic_.embed_all(texts); };
+  ExplainResult r = explain_compare(doc, explanation, embed, semantic_.link_threshold());
+  if (r.passages.empty()) throw ServiceError(400, "this note has no text to explain");
+  store_.add_explain_attempt(note_id, now_ms(), r.score);
+
+  json passages = json::array();
+  for (const auto& p : r.passages)
+    passages.push_back({{"heading", p.heading}, {"text", p.text}, {"status", p.status}, {"missing_terms", p.missing_terms}});
+  return {{"score", r.score}, {"semantic", r.semantic}, {"passages", passages}, {"previous", previous}};
 }
 
 json Service::mastery() {

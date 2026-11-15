@@ -18,6 +18,7 @@ interface Props {
   onDelete: (id: number) => void
   onCreateSubpage: (title: string) => Promise<Note>
   onLocalGraph: () => void
+  onExplain: () => void
 }
 
 const SAVE_DELAY_MS = 500
@@ -167,6 +168,11 @@ export default function NotePage(props: Props) {
         {cards.length > 0 && self?.path && (
           <button className="study-chip" title={t('Karten dieser Notiz lernen')} onClick={() => flush().then(() => props.onStudy(self.path, titleOf(title)))}>
             <Icon name="cards" /> {t('Lernen')}
+          </button>
+        )}
+        {text.trim().length > 40 && (
+          <button className="study-chip" title={t('Notiz verdecken und aus dem Kopf erklären')} onClick={() => flush().then(() => props.onExplain())}>
+            <Icon name="edit" /> {t('Erklären')}
           </button>
         )}
         <button className={`icon-btn ${source !== null ? 'on' : ''}`} title={t('Markdown-Quelltext')} onClick={toggleSource}>

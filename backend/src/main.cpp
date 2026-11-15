@@ -247,6 +247,11 @@ int main(int argc, char** argv) {
     std::string e = req.get_param_value("exam");
     return CardScope{e.empty() ? int64_t{0} : std::stoll(e), req.get_param_value("path")};
   };
+  srv.Post(R"(/api/notes/(\d+)/explain)", [&](Req req, Res res) {
+    json body = parse_body(req);
+    if (body.contains("text") && !body["text"].is_string()) throw ServiceError(400, "text must be a string");
+    send_json(res, svc.explain(path_id(req), body.value("text", "")));
+  });
   srv.Get("/api/mastery", [&](Req, Res res) { send_json(res, svc.mastery()); });
   srv.Get("/api/review/stats", [&](Req req, Res res) { send_json(res, svc.review_stats(scope_param(req))); });
   srv.Get("/api/review/queue", [&](Req req, Res res) { send_json(res, svc.review_queue(scope_param(req))); });

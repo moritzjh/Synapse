@@ -32,6 +32,7 @@ add_library(synapse_core STATIC
   src/vault.cpp
   src/service.cpp
   src/mcp.cpp
+  src/explain.cpp
   third_party/md4c/md4c.c
 )
 target_include_directories(synapse_core PUBLIC src)

@@ -162,6 +162,18 @@ SemanticIndex::Scored SemanticIndex::search(const std::string& query, size_t k) 
   return knn(v, k, -1);
 }
 
+std::vector<std::vector<float>> SemanticIndex::embed_all(const std::vector<std::string>& texts) {
+  std::vector<std::vector<float>> out;
+  if (!embedder_) return out;
+  out.reserve(texts.size());
+  for (const auto& t : texts) {
+    // one text per lock, so the indexing worker and searches are not starved
+    std::lock_guard lock(embed_mu_);
+    out.push_back(embedder_->embed(t));
+  }
+  return out;
+}
+
 size_t SemanticIndex::indexed() {
   std::lock_guard lock(index_mu_);
   return vectors_.size();

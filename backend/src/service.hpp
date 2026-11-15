@@ -65,6 +65,9 @@ class Service {
   nlohmann::json review_card(int64_t card_id, int rating);
   // [{note_id, cards, new, due, retention}] for every note with cards – the "knowledge map".
   nlohmann::json mastery();
+  // "Explain it": compares what the user wrote from memory with the note. Empty text = just the outline
+  // ({passages: n, headings: [...], previous}); otherwise {score, passages: [{heading, text, status, missing_terms}], previous}.
+  nlohmann::json explain(int64_t note_id, const std::string& explanation);
 
   // exams
   nlohmann::json list_exams();

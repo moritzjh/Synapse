@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "content.hpp"
+#include "explain.hpp"
 #include "fsrs.hpp"
 #include "markdown.hpp"
 #include "service.hpp"
@@ -238,6 +239,35 @@ void test_markdown_math() {
   CHECK(cards.size() == 1 && cards[0].front == "Energie $E = mc^2$" && cards[0].data["back"] == "Einstein");
 }
 
+void test_explain() {
+  json d = markdown_to_doc(
+      "# Zelle\n\nDie Mitochondrien sind das Kraftwerk der Zelle und erzeugen ATP.\n\n"
+      "Phasen der Mitose >>\n- Prophase\n- Metaphase\n- Anaphase\n\n"
+      "Energie >> $E = mc^2$\n\n```\ncode wird ignoriert\n```\n");
+  auto ps = explain_passages(d);
+  CHECK(ps.size() == 3);
+  if (ps.size() != 3) return;
+  CHECK(ps[0].heading == "Zelle" && ps[0].text.find(">>") == std::string::npos);
+  CHECK(ps[1].text == "Phasen der Mitose: Prophase; Metaphase; Anaphase");  // question + its answer list
+  CHECK(ps[2].text == "Energie – $E = mc^2$");
+
+  // without a model the key terms decide
+  auto r = explain_compare(d, "Mitochondrien erzeugen ATP, sie sind das Kraftwerk jeder Zelle.", nullptr, 0.5);
+  CHECK(!r.semantic && r.passages[0].status == "covered" && r.passages[1].status == "missing");
+  CHECK(!r.passages[1].missing_terms.empty() && r.passages[1].missing_terms[0] == "Phasen");
+  CHECK(r.score > 0.2 && r.score < 0.7);
+  CHECK(explain_compare(d, "", nullptr, 0.5).score == 0);
+
+  // with embeddings: a paraphrase without the same words still counts as partly covered
+  EmbedFn fake = [](const std::vector<std::string>& texts) {
+    std::vector<std::vector<float>> out;
+    for (const auto& t : texts) out.push_back(t.find("Teilung") != std::string::npos || t.find("Mitose") != std::string::npos ? std::vector<float>{1, 0} : std::vector<float>{0, 1});
+    return out;
+  };
+  auto r2 = explain_compare(d, "Bei der Teilung trennen sich die Chromosomen.", fake, 0.5);
+  CHECK(r2.semantic && r2.passages[1].status == "partial" && r2.passages[0].status == "missing");
+}
+
 // Review scopes (folder / note), folder colours and untitled notes, on a real store + vault.
 void test_vault_scopes() {
   namespace fs = std::filesystem;
@@ -301,6 +331,7 @@ int main() {
   test_exam_scheduling();
   test_markdown_blocks();
   test_markdown_math();
+  test_explain();
   test_vault_scopes();
   if (failures) {
     std::cerr << failures << " check(s) failed\n";

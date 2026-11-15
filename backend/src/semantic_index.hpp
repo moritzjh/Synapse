@@ -38,6 +38,10 @@ class SemanticIndex {
   Scored similar(int64_t id, size_t k);
   Scored search(const std::string& query, size_t k);
 
+  // Embeddings of arbitrary texts (same space as the notes), e.g. to compare passages. Empty if disabled.
+  std::vector<std::vector<float>> embed_all(const std::vector<std::string>& texts);
+  float link_threshold() const { return embedder_ ? embedder_->link_threshold() : 0.5f; }
+
   bool enabled() const { return embedder_ != nullptr; }
   std::string model() const { return embedder_ ? embedder_->name() : ""; }
   size_t indexed();
