@@ -398,7 +398,7 @@ std::optional<json> McpServer::handle_one(const json& msg) {
       bool known = std::find(kSupportedProtocols.begin(), kSupportedProtocols.end(), requested) != kSupportedProtocols.end();
       return rpc_result(id, {{"protocolVersion", known ? requested : kLatestProtocol},
                              {"capabilities", {{"tools", {{"listChanged", false}}}}},
-                             {"serverInfo", {{"name", "synapse"}, {"title", "Synapse"}, {"version", "0.3.0"}}},
+                             {"serverInfo", {{"name", "synapse"}, {"title", "Synapse"}, {"version", "0.1.0"}}},
                              {"instructions",
                               "Synapse is the user's personal knowledge base: Markdown notes linked with [[wikilinks]], "
                               "flashcards written inside notes, spaced repetition with exam planning. Search before "
