@@ -138,6 +138,13 @@ export interface NoteMastery {
   retention: number
 }
 
+/** Two cards that are similar in meaning but have different answers. */
+export interface ConfusablePair {
+  a: Card
+  b: Card
+  similarity: number
+}
+
 export interface ReviewStats {
   due: number
   new: number
@@ -187,6 +194,8 @@ function scopeQuery(exam: number, path: string) {
 }
 
 export const cardApi = {
+  confusables: (exam = 0, path = '') =>
+    request<{ enabled: boolean; pending: number; pairs: ConfusablePair[] }>(`/confusables${scopeQuery(exam, path)}`),
   /** `at` (unix ms) forecasts that day; `study` = minutes of studying per day assumed until then. */
   mastery: (at = 0, study = 0) => request<NoteMastery[]>(`/mastery${at ? `?at=${at}&study=${study}` : ''}`),
   noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),

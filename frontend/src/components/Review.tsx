@@ -63,9 +63,10 @@ interface Props {
   onExam: (exam?: number) => void
   onOpenNote: (id: number) => void
   onChanged: () => void
+  onConfuse: () => void
 }
 
-export default function Review({ exam, scope, exams, onExam, onOpenNote, onChanged }: Props) {
+export default function Review({ exam, scope, exams, onExam, onOpenNote, onChanged, onConfuse }: Props) {
   const path = scope?.path
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [stats, setStats] = useState<ReviewStats | null>(null)
@@ -188,6 +189,9 @@ export default function Review({ exam, scope, exams, onExam, onOpenNote, onChang
           <div className="study-bar"><div style={{ width: `${(done / Math.max(1, total)) * 100}%` }} /></div>
           <span>{card ? `${done + 1} / ${total}` : `${done} / ${done}`}</span>
         </div>
+        <button className="study-mode" onClick={onConfuse} title={t('Ähnliche Karten nebeneinander: trainiert, sie nicht zu verwechseln')}>
+          {t('Verwechslungen')}
+        </button>
         <div className="study-counts">
           <span title={t('neue Karten heute')}><i className="dot-new" />{stats.new}</span>
           <span title={t('fällige Wiederholungen')}><i className="dot-due" />{stats.due}</span>

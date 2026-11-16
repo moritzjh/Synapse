@@ -8,6 +8,7 @@ import Exams from './components/Exams'
 import FolderPage from './components/FolderPage'
 import AnkiImport from './import/AnkiImport'
 import Explain from './components/Explain'
+import Confuse from './components/Confuse'
 import type { StudyScope } from './components/Review'
 import { t } from './i18n'
 
@@ -17,6 +18,7 @@ export type View =
   | { kind: 'review'; exam?: number; scope?: StudyScope }
   | { kind: 'folder'; path: string }
   | { kind: 'explain'; id: number }
+  | { kind: 'confuse'; exam?: number; scope?: StudyScope }
   | { kind: 'exams' }
   | { kind: 'home' }
 
@@ -124,10 +126,18 @@ export default function App() {
           />
         ) : view.kind === 'explain' && notes.some((n) => n.id === view.id) ? (
           <Explain key={view.id} note={notes.find((n) => n.id === view.id)!} onOpenNote={openNote} onStudy={study} />
+        ) : view.kind === 'confuse' ? (
+          <Confuse
+            exam={view.exam}
+            scope={view.scope}
+            onBack={() => setView({ kind: 'review', exam: view.exam, scope: view.scope })}
+            onOpenNote={openNote}
+            onChanged={refreshMeta}
+          />
         ) : view.kind === 'graph' ? (
           <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} onStudy={study} exams={exams} />
         ) : view.kind === 'review' ? (
-          <Review key={`${view.exam ?? 0}:${view.scope?.path ?? ''}`} exam={view.exam} scope={view.scope} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
+          <Review key={`${view.exam ?? 0}:${view.scope?.path ?? ''}`} exam={view.exam} scope={view.scope} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} onConfuse={() => setView({ kind: 'confuse', exam: view.exam, scope: view.scope })} />
         ) : view.kind === 'folder' ? (
           <FolderPage
             path={view.path}

@@ -16,7 +16,7 @@ using json = nlohmann::json;
 
 namespace {
 
-constexpr int kSchemaVersion = 5;
+constexpr int kSchemaVersion = 6;
 
 int64_t now_ms() {
   using namespace std::chrono;
@@ -127,6 +127,18 @@ void NoteStore::migrate() {
         score   REAL NOT NULL
       );
       CREATE INDEX IF NOT EXISTS explain_attempts_note ON explain_attempts(note_id, ts);
+    )sql");
+  }
+  if (version < 6) {
+    db_.exec(R"sql(
+      -- Embedding of each flashcard (question + answer), to find cards that are easy to mix up.
+      -- `text` is what was embedded: a changed card is re-embedded.
+      CREATE TABLE IF NOT EXISTS card_embeddings (
+        card_id INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+        model   TEXT NOT NULL,
+        text    TEXT NOT NULL,
+        vec     BLOB NOT NULL
+      );
     )sql");
   }
   db_.exec(("PRAGMA user_version = " + std::to_string(kSchemaVersion)).c_str());
@@ -628,6 +640,33 @@ std::vector<NoteMastery> NoteStore::note_mastery(int64_t now, int64_t at, int st
   }
   finish();
   return out;
+}
+
+std::vector<Card> NoteStore::cards_in(const CardScope& scope) {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, (card_select("1" + scope_sql(scope)) + " ORDER BY c.note_id, c.position").c_str());
+  return query_cards(s);
+}
+
+std::map<int64_t, CardEmbedding> NoteStore::card_embeddings(const std::string& model) {
+  std::lock_guard lock(mu_);
+  Stmt s(db_, "SELECT card_id, text, vec FROM card_embeddings WHERE model = ?");
+  s.bind(1, model);
+  std::map<int64_t, CardEmbedding> out;
+  while (s.step()) {
+    std::string blob = s.col_blob(2);
+    CardEmbedding e{s.col_text(1), std::vector<float>(blob.size() / sizeof(float))};
+    std::memcpy(e.vec.data(), blob.data(), e.vec.size() * sizeof(float));
+    out.emplace(s.col_int(0), std::move(e));
+  }
+  return out;
+}
+
+void NoteStore::save_card_embedding(int64_t card_id, const std::string& model, const CardEmbedding& e) {
+  std::lock_guard lock(mu_);
+  // the card may have been deleted while it was being embedded
+  Stmt(db_, "INSERT OR REPLACE INTO card_embeddings(card_id, model, text, vec) SELECT id, ?, ?, ? FROM cards WHERE id = ?")
+      .bind(1, model).bind(2, e.text).bind_blob(3, e.vec.data(), e.vec.size() * sizeof(float)).bind(4, card_id).run();
 }
 
 std::optional<std::pair<int64_t, double>> NoteStore::last_explain_attempt(int64_t note_id) {

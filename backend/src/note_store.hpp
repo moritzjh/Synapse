@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <json.hpp>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -91,6 +92,11 @@ struct NoteMastery {
   double retention = 0;  // mean recall probability of the cards studied so far (0 if none)
 };
 
+struct CardEmbedding {
+  std::string text;  // what was embedded
+  std::vector<float> vec;
+};
+
 struct ReviewStats {
   int due = 0;           // learning + review cards due now
   int new_available = 0; // new cards that may still be introduced today
@@ -142,6 +148,11 @@ class NoteStore {
   // One entry per note that has cards.
   // `at_ms` in the future forecasts; `study_minutes` per day simulates studying until then (0 = no studying).
   std::vector<NoteMastery> note_mastery(int64_t now_ms, int64_t at_ms, int study_minutes = 0);
+
+  // --- confusable cards ---
+  std::vector<Card> cards_in(const CardScope& scope);
+  std::map<int64_t, CardEmbedding> card_embeddings(const std::string& model);
+  void save_card_embedding(int64_t card_id, const std::string& model, const CardEmbedding& e);
 
   // --- "explain it" attempts ---
   std::optional<std::pair<int64_t, double>> last_explain_attempt(int64_t note_id);  // (ts, score)

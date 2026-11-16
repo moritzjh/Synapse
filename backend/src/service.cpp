@@ -407,6 +407,117 @@ json Service::review_stats(const CardScope& scope) {
   return {{"due", st.due}, {"new", st.new_available}, {"total", st.total}, {"reviewed_today", st.reviewed_today}};
 }
 
+namespace {
+
+// Question and answer of a card as one line of prose.
+std::string card_answer(const Card& c) {
+  if (c.kind == "list") {
+    std::string out;
+    for (const auto& i : c.data.value("items", json::array())) out += (out.empty() ? "" : "; ") + i.get<std::string>();
+    return out;
+  }
+  if (c.kind == "cloze") {
+    std::string out;
+    for (const auto& s : c.data.value("segments", json::array())) out += s.value("cloze", "");
+    return out;
+  }
+  return c.data.value("back", "");
+}
+
+std::string card_text(const Card& c) {
+  if (c.kind == "cloze") {
+    std::string out;
+    for (const auto& s : c.data.value("segments", json::array())) out += s.contains("cloze") ? s.value("cloze", "") : s.value("text", "");
+    return out;
+  }
+  return c.front + " – " + card_answer(c);
+}
+
+std::string squash(std::string s) {
+  std::string out;
+  for (unsigned char ch : s)
+    if (!std::isspace(ch) && !std::ispunct(ch)) out += static_cast<char>(std::tolower(ch));
+  return out;
+}
+
+}  // namespace
+
+json Service::confusables(const CardScope& scope, size_t limit) {
+  if (!semantic_.enabled()) return {{"enabled", false}, {"pending", 0}, {"pairs", json::array()}};
+  constexpr size_t kEmbedPerCall = 250;  // keeps the first request on a large collection responsive
+  constexpr size_t kMaxCards = 3000;
+  const std::string model = semantic_.model();
+
+  std::vector<Card> cards;
+  for (auto& c : store_.cards_in(scope)) {
+    // an image has no text to compare; the reverse card is the same knowledge as its basic card
+    if (c.kind == "occlusion" || c.kind == "reverse") continue;
+    if (cards.size() < kMaxCards) cards.push_back(std::move(c));
+  }
+
+  auto cached = store_.card_embeddings(model);
+  std::vector<std::string> texts(cards.size());
+  std::vector<size_t> todo;
+  for (size_t i = 0; i < cards.size(); ++i) {
+    texts[i] = card_text(cards[i]);
+    auto it = cached.find(cards[i].id);
+    if (it == cached.end() || it->second.text != texts[i]) todo.push_back(i);
+  }
+  size_t pending = todo.size() > kEmbedPerCall ? todo.size() - kEmbedPerCall : 0;
+  if (todo.size() > kEmbedPerCall) todo.resize(kEmbedPerCall);
+  if (!todo.empty()) {
+    std::vector<std::string> batch;
+    for (size_t i : todo) batch.push_back(texts[i]);
+    auto vecs = semantic_.embed_all(batch);
+    for (size_t k = 0; k < todo.size() && k < vecs.size(); ++k) {
+      CardEmbedding e{batch[k], std::move(vecs[k])};
+      store_.save_card_embedding(cards[todo[k]].id, model, e);
+      cached[cards[todo[k]].id] = std::move(e);
+    }
+  }
+
+  // "Easy to mix up" = clearly about the same thing (above the model's "related" level by a margin),
+  // but not the same card written twice, and with different answers.
+  const double t = semantic_.link_threshold();
+  const double lo = t + 0.25 * (1 - t), hi = 0.985;
+  struct Pair {
+    size_t a, b;
+    double sim, score;
+  };
+  std::vector<Pair> found;
+  std::vector<const std::vector<float>*> vec(cards.size(), nullptr);
+  std::vector<std::string> answer(cards.size());
+  for (size_t i = 0; i < cards.size(); ++i) {
+    auto it = cached.find(cards[i].id);
+    if (it != cached.end() && it->second.text == texts[i]) vec[i] = &it->second.vec;
+    answer[i] = squash(card_answer(cards[i]));
+  }
+  for (size_t i = 0; i < cards.size(); ++i) {
+    if (!vec[i]) continue;
+    for (size_t j = i + 1; j < cards.size(); ++j) {
+      if (!vec[j] || vec[i]->size() != vec[j]->size()) continue;
+      double sim = 0;
+      for (size_t d = 0; d < vec[i]->size(); ++d) sim += double((*vec[i])[d]) * (*vec[j])[d];
+      if (sim < lo || sim >= hi || answer[i] == answer[j]) continue;
+      // cards you have already got wrong are the likelier mix-ups
+      int lapses = std::min(5, cards[i].sched.lapses + cards[j].sched.lapses);
+      found.push_back({i, j, sim, sim + 0.03 * lapses});
+    }
+  }
+  std::sort(found.begin(), found.end(), [](const Pair& x, const Pair& y) { return x.score > y.score; });
+
+  json pairs = json::array();
+  std::set<size_t> used;  // each card at most once per session
+  for (const auto& p : found) {
+    if (pairs.size() >= limit) break;
+    if (used.count(p.a) || used.count(p.b)) continue;
+    used.insert(p.a);
+    used.insert(p.b);
+    pairs.push_back({{"a", to_json(cards[p.a])}, {"b", to_json(cards[p.b])}, {"similarity", p.sim}});
+  }
+  return {{"enabled", true}, {"pending", pending}, {"pairs", pairs}, {"candidates", found.size()}};
+}
+
 json Service::explain(int64_t note_id, const std::string& explanation) {
   auto n = store_.get(note_id);
   if (!n) throw ServiceError(404, "note not found");

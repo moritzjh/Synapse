@@ -252,6 +252,7 @@ int main(int argc, char** argv) {
     if (body.contains("text") && !body["text"].is_string()) throw ServiceError(400, "text must be a string");
     send_json(res, svc.explain(path_id(req), body.value("text", "")));
   });
+  srv.Get("/api/confusables", [&](Req req, Res res) { send_json(res, svc.confusables(scope_param(req))); });
   // ?at=<unix ms> forecasts the knowledge map for that day, ?study=<minutes per day> assumes studying until then
   srv.Get("/api/mastery", [&](Req req, Res res) {
     std::string at = req.get_param_value("at"), study = req.get_param_value("study");

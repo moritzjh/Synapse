@@ -66,6 +66,17 @@ Obsidian. Ähnliche Inhalte werden von einem **lokalen KI-Modell** automatisch v
 Gelernt wird mit dem FSRS-5-Algorithmus (wie im modernen Anki): Nochmal / Schwer / Gut / Einfach, Tasten
 `Leertaste` (aufdecken) und `1`–`4`. 20 neue Karten pro Tag. Lange Karten scrollen innerhalb der Karte.
 
+**Wissensstand und Zeitreise**: Im Graph färbt der Schalter „Wissensstand“ jede Notiz danach, wie gut du ihre Karten
+gerade kannst. Mit dem Zeitregler siehst du dieselbe Karte für einen späteren Tag, z. B. den Prüfungstag – ohne Lernen
+oder bei 15 bzw. 30 Minuten am Tag.
+
+**Verwechslungs-Training** („Verwechslungen“ oben in der Lernansicht): Synapse findet Karten, die sich inhaltlich
+ähneln, aber verschiedene Antworten haben (Mitose/Meiose, Arterien/Venen), und zeigt sie nebeneinander. Verwechselte
+Karten kommen früher wieder.
+
+**Erklär-Modus** („Erklären“ oben in der Notiz): Die Notiz wird verdeckt, du schreibst aus dem Kopf, und Synapse zeigt
+pro Abschnitt „Erklärt“, „Teilweise“ oder „Fehlt“ samt der nicht erwähnten Begriffe.
+
 **Gezielt lernen**: Jede Notiz und jeder Ordner hat in der Seitenleiste einen kleinen Karten-Knopf (beim
 Darüberfahren), Notizen mit Karten zusätzlich „Lernen“ oben rechts, Ordner-Seiten einen „Lernen“-Knopf. Gelernt
 werden dann nur die Karten dieser Notiz (inkl. Unterseiten) bzw. dieses Ordners (inkl. Unterordner) – fällige
@@ -252,6 +263,9 @@ gegen die HuggingFace-Referenz geprüft (identische Token-IDs, identische Kosinu
 | GET     | `/api/review/queue?exam=`    | Lern-Warteschlange einer Prüfung            |
 | GET     | `/api/review/queue?path=`    | nur Karten eines Ordners (`Uni/Bio`) oder einer Notiz (`Uni/Bio/Zelle.md`, inkl. Unterseiten); gilt auch für `/stats` |
 | GET     | `/api/tree`                  | Ordner, Notizen mit Pfad, `folder_meta` (Farbe/Emoji) |
+| GET     | `/api/mastery?at=&study=`    | Wissensstand pro Notiz, optional als Vorhersage für einen Zeitpunkt (`at` in ms) bei `study` Minuten Lernen pro Tag |
+| GET     | `/api/confusables`           | Kartenpaare mit Verwechslungsgefahr (`?path=` / `?exam=` wie bei der Lern-Warteschlange) |
+| POST    | `/api/notes/:id/explain`     | `{text}` – Erklär-Modus: Abdeckung pro Abschnitt |
 | PUT     | `/api/folders/meta`          | `{path, color, icon}` – Ordnerfarbe/-emoji (leer = entfernen) |
 | GET     | `/api/status`                | Modell, Anzahl indexierter Notizen, Vault   |
 | POST    | `/mcp`                       | MCP (JSON-RPC)                              |

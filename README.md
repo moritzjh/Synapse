@@ -82,7 +82,11 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 </tr>
 <tr>
 <td><img src="docs/screenshots/graph.png" alt="Knowledge graph with one shaded region per folder"></td>
-<td><img src="docs/screenshots/knowledge.png" alt="Knowledge view: notes coloured by how well you know their cards"></td>
+<td><img src="docs/screenshots/timetravel.png" alt="Knowledge view with time travel: what you will still know in 90 days"></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/mixups.png" alt="Mix-up training: two similar cards side by side"></td>
+<td><img src="docs/screenshots/explain.png" alt="Explain mode: which passages of the note you explained from memory"></td>
 </tr>
 </table>
 
@@ -109,12 +113,14 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 - Scheduling with **FSRS-5** (the algorithm of modern Anki), keys `Space` and `1`–`4`
 - **Exams:** set a date and the notes it covers. New cards are spread over the days left and weak cards are pulled before the exam, with a predicted retention on exam day
 - Study everything, one exam, one folder or a single note, right from the sidebar
+- **Mix-up training:** Synapse finds cards that are similar in meaning but have different answers (mitosis / meiosis, arteries / veins, TCP / UDP) and shows them side by side, so you learn to tell them apart. Cards you mix up come back sooner
 - **Explain mode** (Feynman technique): the note is hidden, you write what you remember, and the local model marks which passages you explained, which only partly and which are missing, with the key terms you left out
 - **Import your Anki decks** (`.apkg` / `.colpkg`, old and new format): decks become notes, cloze, reversed cards, images and MathJax are kept
 
 **Knowledge graph (Obsidian-style)**
 - Drawn like a map: one softly shaded region per folder, labels beside the notes, local graph around a note, filters, groups, time-lapse
 - **Knowledge view:** switch the colours from folders to *how well you know each note right now* (solid, fading, nearly forgotten, not studied yet), computed from your review history. One click studies the weakest note
+- **Time travel:** drag a slider to see that map on any day up to a year ahead, for example on exam day, either if you stop studying or with 15 or 30 minutes a day
 - **Semantic edges:** a local embedding model ([multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small), 100+ languages) connects similar notes, with no API key and nothing leaving your machine
 - "Similar notes" next to every note and search by meaning
 
@@ -137,6 +143,8 @@ For frontend development run `npm run dev` in `frontend/` (proxies `/api` to por
 | Image occlusion | ✅ | ❌ | ⚠️ plugin | ✅ | ✅ |
 | Graph view | ✅ | ❌ | ✅ | ❌ | ⚠️ |
 | Automatic links by meaning (local AI) | ✅ | ❌ | ⚠️ plugin | ❌ | ❌ |
+| Forecast of what you will know on exam day, per topic | ✅ | ❌ | ❌ | ⚠️ workload only | ❌ |
+| Finds cards you are likely to mix up | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Built-in MCP server for AI assistants | ✅ | ✅ | ⚠️ plugin | ⚠️ add-on | ❌ |
 | Free | ✅ | freemium | ✅ (sync paid) | ✅ (iOS paid) | freemium |
 
@@ -203,6 +211,7 @@ and embeddings are verified against the Hugging Face reference implementation.
 - [x] Databases with formulas, folders, LaTeX, Anki import
 - [x] Knowledge view: the graph coloured by how well you know each note
 - [x] Explain mode: write a note from memory, see what you missed
+- [x] Time travel: forecast of the knowledge map; mix-up training for similar cards
 - [ ] Mock exams: a timed test across all notes of an exam
 - [ ] Desktop app with installer (Tauri)
 - [ ] Mobile-friendly PWA for studying on the go

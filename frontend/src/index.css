@@ -1364,3 +1364,28 @@ button.folder-big:hover { background: var(--bg-active); }
 .graph-time-study { margin-left: auto; display: inline-flex; gap: 2px; }
 .graph-time-study button { border-color: transparent; }
 .graph-time-note { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- confusion training ---------- */
+.study-mode { font-size: 13px; color: var(--text-2); padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; white-space: nowrap; }
+.study-mode:hover { color: var(--text); border-color: var(--text-2); }
+.cf-back { cursor: pointer; padding: 6px 12px; }
+.cf-stage { justify-content: flex-start; padding-top: 44px; }
+.cf-title { font-size: 15px; font-weight: 600; color: var(--muted); margin: 0 0 18px; letter-spacing: 0.01em; }
+.cf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: min(940px, 100%); }
+.fc.cf-card { min-height: 280px; padding: 18px 24px 24px; }
+.cf-note::before { content: none; }
+.cf-note { max-width: 100%; }
+.cf-q { font-size: 21px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; margin: 18px 0 20px; overflow-wrap: anywhere; }
+.cf-a {
+  flex: 1; display: grid; place-items: center; border-radius: 12px; border: 1.5px dashed var(--border-strong); background: var(--bg-subtle);
+  color: var(--muted); font-weight: 600; padding: 14px 16px; min-height: 90px; max-height: 40vh; overflow-y: auto;
+}
+.cf-a.open { place-items: start; border: none; background: transparent; padding: 14px 0 0; border-top: 1px solid var(--border); border-radius: 0; color: var(--text); font-weight: 400; font-size: 17px; line-height: 1.55; animation: pop-in 0.2s ease-out; }
+.cf-a p { margin: 0; }
+.cf-a ul { margin: 0; padding-left: 20px; }
+.cf-a mark { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 0 4px; }
+.cf-stage .study-actions { width: min(520px, 100%); }
+.cf-grade { grid-template-columns: 1fr 1fr; }
+.cf-mixed { list-style: none; padding: 0; margin: 4px 0 20px; text-align: left; display: inline-flex; flex-direction: column; gap: 6px; font-size: 14.5px; }
+.cf-mixed span { color: var(--muted); margin: 0 6px; }
+@media (max-width: 720px) { .cf-pair { grid-template-columns: 1fr; } .fc.cf-card { min-height: 0; } }
