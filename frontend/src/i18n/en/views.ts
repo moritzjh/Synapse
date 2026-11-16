@@ -1,5 +1,15 @@
 /** English UI text, keyed by the German original. */
 export default {
+  'Heute': 'Today',
+  'Morgen': 'Tomorrow',
+  'In {n} Tagen': 'In {n} days',
+  'Ø {n} % abrufbar': 'avg. {n}% recall',
+  'Zeitreise: Wissensstand an einem späteren Tag': 'Time travel: your knowledge on a later day',
+  'Zum Prüfungstag springen': 'Jump to the exam day',
+  'Annahme bis dahin': 'Assumption until then',
+  'ohne Lernen': 'no studying',
+  '{n} Min/Tag': '{n} min/day',
+  'Annahme: Du lernst jeden Tag und weißt jede Karte.': 'Assumes you study every day and know every card.',
   'Erklärt': 'Explained',
   'Teilweise': 'Partly',
   'Fehlt': 'Missing',

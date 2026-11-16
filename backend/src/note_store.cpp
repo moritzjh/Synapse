@@ -563,9 +563,46 @@ ReviewStats NoteStore::review_stats(int64_t now, int new_per_day, const CardScop
   return st;
 }
 
-std::vector<NoteMastery> NoteStore::note_mastery(int64_t now) {
-  std::lock_guard lock(mu_);
-  Stmt s(db_, (card_select("1") + " ORDER BY c.note_id").c_str());
+// How well each note is known at time `at` (>= now). With `study_minutes` > 0 the days until then are
+// simulated: every day the due cards are reviewed and new ones introduced, as far as the time budget goes.
+// The simulation assumes every review is answered "Good" – an upper bound, not a promise.
+std::vector<NoteMastery> NoteStore::note_mastery(int64_t now, int64_t at, int study_minutes) {
+  constexpr int64_t kDay = 86'400'000;
+  constexpr int kCardsPerMinute = 6;   // ~10 s per card
+  constexpr int kNewPerDay = 20;
+  at = std::clamp(at, now, now + 730 * kDay);
+
+  std::vector<Card> cards;
+  {
+    std::lock_guard lock(mu_);
+    Stmt s(db_, (card_select("1") + " ORDER BY c.note_id, c.position").c_str());
+    cards = query_cards(s);
+  }
+
+  if (study_minutes > 0) {
+    const int budget = study_minutes * kCardsPerMinute;
+    std::vector<size_t> due;
+    for (int64_t t = now; t + kDay <= at; t += kDay) {
+      due.clear();
+      for (size_t i = 0; i < cards.size(); ++i)
+        if (cards[i].sched.state != fsrs::State::New && cards[i].sched.due <= t) due.push_back(i);
+      std::sort(due.begin(), due.end(), [&](size_t x, size_t y) { return cards[x].sched.due < cards[y].sched.due; });
+      int left = budget;
+      for (size_t i : due) {
+        if (left-- <= 0) break;
+        cards[i].sched = fsrs::review(cards[i].sched, fsrs::Good, t, {}, cards[i].exam_date);
+      }
+      // a new card takes two answers on its first day (learning step after 10 minutes)
+      int fresh = std::min(kNewPerDay, std::max(0, left) / 2);
+      for (size_t i = 0; i < cards.size() && fresh > 0; ++i) {
+        if (cards[i].sched.state != fsrs::State::New) continue;
+        cards[i].sched = fsrs::review(cards[i].sched, fsrs::Good, t, {}, cards[i].exam_date);
+        cards[i].sched = fsrs::review(cards[i].sched, fsrs::Good, t + 600'000, {}, cards[i].exam_date);
+        --fresh;
+      }
+    }
+  }
+
   std::vector<NoteMastery> out;
   double sum = 0;
   int studied = 0;
@@ -574,7 +611,7 @@ std::vector<NoteMastery> NoteStore::note_mastery(int64_t now) {
     sum = 0;
     studied = 0;
   };
-  for (const auto& c : query_cards(s)) {
+  for (const auto& c : cards) {
     if (out.empty() || out.back().note_id != c.note_id) {
       finish();
       out.push_back({c.note_id});
@@ -585,8 +622,8 @@ std::vector<NoteMastery> NoteStore::note_mastery(int64_t now) {
       ++m.new_cards;
       continue;
     }
-    if (c.sched.due <= now) ++m.due;
-    sum += fsrs::retrievability(c.sched, now);
+    if (c.sched.due <= at) ++m.due;
+    sum += fsrs::retrievability_at(c.sched, at);
     ++studied;
   }
   finish();

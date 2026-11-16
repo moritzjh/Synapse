@@ -436,9 +436,10 @@ json Service::explain(int64_t note_id, const std::string& explanation) {
   return {{"score", r.score}, {"semantic", r.semantic}, {"passages", passages}, {"previous", previous}};
 }
 
-json Service::mastery() {
+json Service::mastery(int64_t at_ms, int study_minutes) {
   json a = json::array();
-  for (const auto& m : store_.note_mastery(now_ms()))
+  int64_t now = now_ms();
+  for (const auto& m : store_.note_mastery(now, at_ms > now ? at_ms : now, std::clamp(study_minutes, 0, 600)))
     a.push_back({{"note_id", m.note_id}, {"cards", m.cards}, {"new", m.new_cards}, {"due", m.due}, {"retention", m.retention}});
   return a;
 }

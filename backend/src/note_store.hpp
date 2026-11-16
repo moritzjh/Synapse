@@ -140,7 +140,8 @@ class NoteStore {
   std::optional<Card> review_card(int64_t id, fsrs::Rating rating, int64_t now_ms);
   ReviewStats review_stats(int64_t now_ms, int new_per_day, const CardScope& scope = {});
   // One entry per note that has cards.
-  std::vector<NoteMastery> note_mastery(int64_t now_ms);
+  // `at_ms` in the future forecasts; `study_minutes` per day simulates studying until then (0 = no studying).
+  std::vector<NoteMastery> note_mastery(int64_t now_ms, int64_t at_ms, int study_minutes = 0);
 
   // --- "explain it" attempts ---
   std::optional<std::pair<int64_t, double>> last_explain_attempt(int64_t note_id);  // (ts, score)

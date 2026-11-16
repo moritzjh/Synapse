@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import { forceCollide, forceX, forceY } from 'd3-force'
-import { api, cardApi, type GraphData, type NoteMastery } from '../api'
+import { api, cardApi, type Exam, type GraphData, type NoteMastery } from '../api'
 import { Icon } from './Icons'
 import GraphPanel from './graph/GraphPanel'
 import { locale, t } from '../i18n'
@@ -63,9 +63,13 @@ interface Props {
   onOpen: (id: number) => void
   onFocus: (id?: number) => void
   onStudy: (path: string, name: string) => void
+  exams: Exam[]
 }
 
-export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
+const DAY = 86_400_000
+const dayFmt = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' })
+
+export default function GraphView({ focus, onOpen, onFocus, onStudy, exams }: Props) {
   const [raw, setRaw] = useState<GraphData | null>(null)
   const [mastery, setMastery] = useState<Map<number, NoteMastery>>(new Map())
   const [settings, setSettings] = useState<Settings>(loadSettings)
@@ -87,8 +91,32 @@ export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
 
   useEffect(() => {
     api.graph().then(setRaw).catch(() => setRaw({ nodes: [], edges: [] }))
-    cardApi.mastery().then((rows) => setMastery(new Map(rows.map((r) => [r.note_id, r])))).catch(() => {})
   }, [])
+
+  // Time travel: the knowledge view for a day in the future, with or without studying until then.
+  const [ahead, setAhead] = useState(0) // days from today
+  const [studyMin, setStudyMin] = useState(0) // assumed minutes of studying per day
+  const upcoming = useMemo(
+    () => exams.map((e) => ({ name: e.name, days: Math.ceil((e.date - Date.now()) / DAY) })).filter((e) => e.days > 0).sort((a, b) => a.days - b.days),
+    [exams],
+  )
+  const horizon = Math.min(365, Math.max(120, ...upcoming.map((e) => e.days + 14)))
+  useEffect(() => {
+    let cancelled = false
+    const timer = setTimeout(
+      () => {
+        cardApi
+          .mastery(ahead ? Date.now() + ahead * DAY : 0, ahead ? studyMin : 0)
+          .then((rows) => !cancelled && setMastery(new Map(rows.map((r) => [r.note_id, r]))))
+          .catch(() => {})
+      },
+      ahead ? 120 : 0,
+    )
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [ahead, studyMin])
   useEffect(() => saveSettings(settings), [settings])
   useEffect(() => {
     if (!box.current) return
@@ -434,6 +462,17 @@ export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
     return c
   }, [data])
 
+  // mean recall over all studied cards, for the time-travel headline
+  const forecast = useMemo(() => {
+    let sum = 0, n = 0
+    for (const m of mastery.values()) {
+      const studied = m.cards - m.new
+      sum += m.retention * studied
+      n += studied
+    }
+    return n ? Math.round((sum / n) * 100) : null
+  }, [mastery])
+
   const hovered = hover !== null ? data.nodes.find((n) => n.id === hover) : undefined
   const hoveredMastery = hovered ? mastery.get(hovered.id) : undefined
 
@@ -608,6 +647,43 @@ export default function GraphView({ focus, onOpen, onFocus, onStudy }: Props) {
           ) : (
             <span className="graph-tip-row muted">{t('Keine Karten')}</span>
           )}
+        </div>
+      )}
+
+      {byMastery && (
+        <div className="graph-time">
+          <div className="graph-time-head">
+            <b>{ahead === 0 ? t('Heute') : ahead === 1 ? t('Morgen') : t('In {n} Tagen', { n: ahead })}</b>
+            {ahead > 0 && <span>{dayFmt.format(Date.now() + ahead * DAY)}</span>}
+            <span className="graph-time-avg">{forecast !== null ? t('Ø {n} % abrufbar', { n: forecast }) : ''}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={horizon}
+            value={Math.min(ahead, horizon)}
+            aria-label={t('Zeitreise: Wissensstand an einem späteren Tag')}
+            style={{ '--fill': `${(Math.min(ahead, horizon) / horizon) * 100}%` } as React.CSSProperties}
+            onChange={(e) => setAhead(Number(e.target.value))}
+          />
+          <div className="graph-time-row">
+            {ahead > 0 && <button onClick={() => setAhead(0)}>{t('Heute')}</button>}
+            {upcoming.slice(0, 3).map((e) => (
+              <button key={e.name} className={ahead === e.days ? 'on' : ''} onClick={() => setAhead(e.days)} title={t('Zum Prüfungstag springen')}>
+                {e.name}
+              </button>
+            ))}
+            {ahead > 0 && (
+              <span className="graph-time-study" role="group" aria-label={t('Annahme bis dahin')}>
+                {[0, 15, 30].map((m) => (
+                  <button key={m} className={studyMin === m ? 'on' : ''} onClick={() => setStudyMin(m)}>
+                    {m === 0 ? t('ohne Lernen') : t('{n} Min/Tag', { n: m })}
+                  </button>
+                ))}
+              </span>
+            )}
+          </div>
+          {ahead > 0 && studyMin > 0 && <p className="graph-time-note">{t('Annahme: Du lernst jeden Tag und weißt jede Karte.')}</p>}
         </div>
       )}
 

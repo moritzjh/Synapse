@@ -125,7 +125,7 @@ export default function App() {
         ) : view.kind === 'explain' && notes.some((n) => n.id === view.id) ? (
           <Explain key={view.id} note={notes.find((n) => n.id === view.id)!} onOpenNote={openNote} onStudy={study} />
         ) : view.kind === 'graph' ? (
-          <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} onStudy={study} />
+          <GraphView key={view.focus ?? 0} focus={view.focus} onOpen={openNote} onFocus={(focus) => setView({ kind: 'graph', focus })} onStudy={study} exams={exams} />
         ) : view.kind === 'review' ? (
           <Review key={`${view.exam ?? 0}:${view.scope?.path ?? ''}`} exam={view.exam} scope={view.scope} exams={exams} onExam={(exam) => setView({ kind: 'review', exam })} onOpenNote={openNote} onChanged={refreshMeta} />
         ) : view.kind === 'folder' ? (

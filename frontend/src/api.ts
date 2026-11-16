@@ -187,7 +187,8 @@ function scopeQuery(exam: number, path: string) {
 }
 
 export const cardApi = {
-  mastery: () => request<NoteMastery[]>('/mastery'),
+  /** `at` (unix ms) forecasts that day; `study` = minutes of studying per day assumed until then. */
+  mastery: (at = 0, study = 0) => request<NoteMastery[]>(`/mastery${at ? `?at=${at}&study=${study}` : ''}`),
   noteCards: (id: number) => request<Card[]>(`/notes/${id}/cards`),
   queue: (exam = 0, path = '') => request<Card[]>(`/review/queue${scopeQuery(exam, path)}`),
   stats: (exam = 0, path = '') => request<ReviewStats>(`/review/stats${scopeQuery(exam, path)}`),

@@ -252,7 +252,11 @@ int main(int argc, char** argv) {
     if (body.contains("text") && !body["text"].is_string()) throw ServiceError(400, "text must be a string");
     send_json(res, svc.explain(path_id(req), body.value("text", "")));
   });
-  srv.Get("/api/mastery", [&](Req, Res res) { send_json(res, svc.mastery()); });
+  // ?at=<unix ms> forecasts the knowledge map for that day, ?study=<minutes per day> assumes studying until then
+  srv.Get("/api/mastery", [&](Req req, Res res) {
+    std::string at = req.get_param_value("at"), study = req.get_param_value("study");
+    send_json(res, svc.mastery(at.empty() ? 0 : std::stoll(at), study.empty() ? 0 : std::stoi(study)));
+  });
   srv.Get("/api/review/stats", [&](Req req, Res res) { send_json(res, svc.review_stats(scope_param(req))); });
   srv.Get("/api/review/queue", [&](Req req, Res res) { send_json(res, svc.review_queue(scope_param(req))); });
   srv.Post(R"(/api/cards/(\d+)/review)", [&](Req req, Res res) {
